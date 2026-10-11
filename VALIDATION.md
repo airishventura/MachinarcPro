@@ -31,3 +31,20 @@ The remaining RLS probe in `tests/phase4.test.ts` attempts to create a temporary
 - Complete real-provider acceptance when an OpenAI or Anthropic key is available: a short task, deterministic tool call, then an approval scenario with output, usage, and cost verification.
 - A forced hosted process interruption was not performed. Restart recovery was verified in the disposable database; hosted task scheduling and approval continuation were verified on the live domain.
 - Conduct a user pilot after real-provider acceptance.
+
+## Review follow-up — 11 October 2026
+
+Source commit: `a1ba67ef746ae7334340485cb026954e553e9023` in `airishventura/MachinarcPro`.
+
+- Published the existing workspace and fixes to GitHub. Local `main` matches the remote source commit. Environment files and local validation artifacts are ignored; a scan of tracked files found none of the configured private connection strings or secrets.
+- Removed invented landing counters and random activity increments. The activity ticker and Network catalog now visibly identify examples as simulated.
+- Catalog hires retain permission and approval checks, but return a simulated result without an external task, transaction or Credit debit. Approval results preserve the simulated outcome.
+- Economy lifetime aggregates include every completed transaction independently of the latest-100 table. Real-provider cost estimates use run telemetry, exclude Mock Runtime, disclose unknown prices and remain in USD. Provider usage no longer debits internal Credits. Existing historical balances and records were preserved.
+- Added three accounting/simulation regression tests. All pass against `machinarc_test`.
+- Fixed the Arc builder's nested library component and effect-driven display overlays. Onboarding completion uses a storage subscription. Local full lint, typecheck and production build pass.
+- The first concurrent local integration run passed 66 of 72 tests: the RLS probe lacked role-creation permission and five recovery tests failed in shared fixture setup. Rerunning recovery separately passed all five. Database suites now run sequentially to reduce connection contention.
+- [GitHub Checks](https://github.com/airishventura/MachinarcPro/actions/runs/38156107977) passed all steps for the source commit: typecheck, lint, unit tests, the complete integration suite (including the RLS probe on disposable PostgreSQL), and production build. This closes the RLS acceptance gap without expanding the production server role.
+- HTTP checks of the locally built homepage, Network, Economy and Arc editor returned 200 and the expected content. Authenticated checks used a temporary session and visitor workspace in the disposable test database; both were removed afterward. These checks do not establish browser interaction or visual correctness.
+- Browser verification could not complete: initial preview startup was slow under memory pressure, and subsequent browser attachment/navigation attempts failed. Desktop/mobile visual, keyboard and hydration checks remain pending.
+- No new production deployment or forced hosted process interruption was performed. A separate staging environment with a harmless action destination is required for disruptive hosted acceptance. The existing live site still requires deployment of these source changes.
+- Real-provider acceptance was explicitly deferred by the operator. `PILOT.md` records the gates and session tasks; no participants or user findings are claimed.
