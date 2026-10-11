@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791403358296,
+      "tag": "0000_canonical_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791697155136,
+      "tag": "0001_shared_rate_limits",
+      "breakpoints": true
+    }
+  ]
+}

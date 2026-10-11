@@ -1,0 +1,111 @@
+/* ==========================================================================
+   MachinArc Motion System
+   Motion communicates state. Every animation maps to a principle and a purpose.
+   Duration guide:  instant 120ms · micro 180ms · screen 320ms · attention 600ms
+   ========================================================================== */
+:root {
+  /* 1 · Timing, spacing & rhythm */
+  --dur-instant: 120ms;   /* button press, hover */
+  --dur-micro: 180ms;     /* toggles, focus, status */
+  --dur-screen: 320ms;    /* page / panel / dialog transitions */
+  --dur-attention: 600ms; /* highlights, approval attention */
+  --stagger: 40ms;
+  /* 2 · Eases — never linear for UI movement */
+  --ease-out: cubic-bezier(.16, 1, .3, 1);      /* entering: fast start, soft landing */
+  --ease-in: cubic-bezier(.5, 0, .75, 0);       /* exiting */
+  --ease-standard: cubic-bezier(.4, 0, .2, 1);  /* state change in place */
+  --ease-emph: cubic-bezier(.34, 1.4, .64, 1);  /* 8 · exaggeration: confirmation only */
+}
+
+/* --- 4 · Anticipation + 6 · Squash: tactile press --------------------------------- */
+.btn { transition: background-color var(--dur-instant) var(--ease-standard), border-color var(--dur-instant) var(--ease-standard), color var(--dur-instant) var(--ease-standard), transform var(--dur-instant) var(--ease-out), opacity var(--dur-micro) var(--ease-standard); }
+.btn:not(:disabled):active { transform: scale(.97); transition-duration: 60ms; }
+.btn-primary:not(:disabled):hover { box-shadow: 0 0 0 3px #f1efea14; }
+
+/* --- Focus: guides attention while typing ----------------------------------------- */
+.input { transition: border-color var(--dur-micro) var(--ease-standard), box-shadow var(--dur-micro) var(--ease-standard), background-color var(--dur-micro) var(--ease-standard); }
+.input:focus { box-shadow: 0 0 0 3px #d9c9a81f; background-color: #101111; }
+:focus-visible { transition: outline-offset var(--dur-instant) var(--ease-out); }
+
+/* --- 3 · Mass & weight: toggle thumb settles with slight overshoot ---------------- */
+button[role="switch"] { transition: border-color var(--dur-micro) var(--ease-standard), background-color var(--dur-micro) var(--ease-standard); }
+button[role="switch"] > span:first-child { transition: left var(--dur-micro) var(--ease-emph), background-color var(--dur-micro) var(--ease-standard) !important; }
+
+/* --- 5 · Arcs + 7 · Follow-through: entrances rise on a curve and overlap ---------- */
+@keyframes rise { from { opacity: 0; transform: translateY(8px) scale(.995); } to { opacity: 1; transform: none; } }
+.fade-up { animation: rise var(--dur-screen) var(--ease-out) both; }
+.stagger > * { animation: rise var(--dur-screen) var(--ease-out) both; }
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: calc(var(--stagger) * 1); }
+.stagger > *:nth-child(3) { animation-delay: calc(var(--stagger) * 2); }
+.stagger > *:nth-child(4) { animation-delay: calc(var(--stagger) * 3); }
+.stagger > *:nth-child(5) { animation-delay: calc(var(--stagger) * 4); }
+.stagger > *:nth-child(6) { animation-delay: calc(var(--stagger) * 5); }
+.stagger > *:nth-child(7) { animation-delay: calc(var(--stagger) * 6); }
+.stagger > *:nth-child(n+8) { animation-delay: calc(var(--stagger) * 7); }
+
+/* Page transition (staging): content enters, chrome stays still */
+.page-enter { animation: rise var(--dur-screen) var(--ease-out) both; }
+
+/* --- Dialogs & drawers ------------------------------------------------------------ */
+@keyframes dialog-in { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes drawer-in { from { transform: translateX(-100%); } to { transform: none; } }
+dialog[open] { animation: dialog-in var(--dur-screen) var(--ease-out); }
+dialog[open]::backdrop { animation: backdrop-in var(--dur-micro) var(--ease-standard); }
+[role="dialog"] > .fade-up, [aria-modal] > .fade-up { animation: dialog-in var(--dur-screen) var(--ease-out) both; }
+.drawer-in { animation: drawer-in var(--dur-screen) var(--ease-out) both; }
+.backdrop-in { animation: backdrop-in var(--dur-micro) var(--ease-standard) both; }
+
+/* --- Status change: dot "lands" when a Machine changes state (mass & weight) ------ */
+@keyframes status-land { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.35); opacity: 1; } 100% { transform: scale(1); } }
+.status-land { animation: status-land var(--dur-micro) var(--ease-emph) both; }
+/* live dot: secondary/layered motion — slow ambient pulse, only for RUNNING-type states */
+@keyframes pulse-dot { 0%, 100% { box-shadow: 0 0 0 0 currentColor; } 60% { box-shadow: 0 0 0 4px transparent; } }
+.dot-live { animation: pulse-dot 2s var(--ease-standard) infinite; }
+
+/* --- 8 · Exaggeration: success confirmation, error feedback ----------------------- */
+@keyframes success-pop { 0% { opacity: 0; transform: scale(.96); } 55% { opacity: 1; transform: scale(1.015); } 100% { transform: scale(1); } }
+@keyframes nudge { 0%, 100% { transform: none; } 25% { transform: translateX(-3px); } 50% { transform: translateX(3px); } 75% { transform: translateX(-1px); } }
+.success-pop { animation: success-pop var(--dur-screen) var(--ease-emph) both; }
+[role="alert"].border-bad\/40, p[role="alert"] { animation: nudge 280ms var(--ease-standard) 1; }
+
+/* --- Attention pattern: authorization must be impossible to miss ------------------ */
+@keyframes attention { 0%, 100% { box-shadow: 0 0 0 0 #d4a24c00; } 50% { box-shadow: 0 0 0 6px #d4a24c26; } }
+[role="alertdialog"] { animation: rise var(--dur-screen) var(--ease-out) both, attention var(--dur-attention) var(--ease-standard) 3 var(--dur-screen); }
+
+/* --- Activity arriving in a feed -------------------------------------------------- */
+@keyframes flash-in { from { background: #d9c9a81f; } to { background: transparent; } }
+.flash-in { animation: rise var(--dur-screen) var(--ease-out) both, flash-in 1.2s var(--ease-standard) both; }
+
+/* --- Progress: bars glide, never jump --------------------------------------------- */
+.progress-glide { transition: width var(--dur-screen) var(--ease-out); }
+@keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+.sweep { animation: sweep 1.4s var(--ease-standard) infinite; }
+
+/* --- Hover affordance on interactive cards: discoverability ----------------------- */
+.card-hover { transition: background-color var(--dur-micro) var(--ease-standard), border-color var(--dur-micro) var(--ease-standard); }
+.card-hover:hover .card-arrow { transform: translateX(3px); }
+.card-arrow { display: inline-block; transition: transform var(--dur-micro) var(--ease-out); }
+
+/* --- Tabs: indicator slides in -------------------------------------------------- */
+@keyframes underline-in { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+[role="tab"][aria-selected="true"] > span.absolute { transform-origin: left; animation: underline-in var(--dur-micro) var(--ease-out) both; }
+
+/* --- 10 · Respect user preferences ------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; animation-delay: 0ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+  .dot-live, .sweep, .skeleton, .caret, .edge-pulse { animation: none !important; }
+  .edge-pulse { display: none; }
+}
+
+/* --- Landing: ticker, spotlight ------------------------------------------------- */
+@keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.marquee { animation: marquee 48s linear infinite; }
+.spotlight::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity var(--dur-micro) var(--ease-standard);
+  background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 50%), #d9c9a814, transparent 70%); }
+.spotlight::after { content: ""; position: absolute; inset: -1px; pointer-events: none; opacity: 0; transition: opacity var(--dur-micro) var(--ease-standard);
+  background: radial-gradient(180px circle at var(--mx, 50%) var(--my, 50%), #d9c9a866, transparent 70%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; padding: 1px; }
+.spotlight:hover::before, .spotlight:hover::after { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .marquee { animation: none !important; } }
