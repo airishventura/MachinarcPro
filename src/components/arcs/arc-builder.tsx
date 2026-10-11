@@ -3,7 +3,7 @@
    undo/redo snapshots and keyboard handlers read the latest graph without re-subscribing every render. */
 import "@xyflow/react/dist/style.css";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Background, BackgroundVariant, MiniMap, ReactFlow, ReactFlowProvider, applyEdgeChanges, applyNodeChanges, useReactFlow, type Connection, type EdgeChange, type NodeChange } from "@xyflow/react";
 import { deployArcAction, runArcAction, saveArcAction } from "@/app/arc-actions";
 import { edgeState, edgeTypes, nodeTypes, toRFEdges, toRFNodes, type ArcRFEdge, type ArcRFNode } from "@/components/arcs/canvas-parts";
@@ -18,6 +18,23 @@ type Props = { arc: { id: string; name: string; arcCode: string; description: st
 const GRID = 20;
 const snap = (v: number) => Math.round(v / GRID) * GRID;
 const DND = "application/marc-node";
+
+function subscribeGuide(onChange: () => void) {
+  window.addEventListener("storage", onChange);
+  return () => window.removeEventListener("storage", onChange);
+}
+function guideCompleted() {
+  try { return localStorage.getItem("marc-arc-guide") === "done"; } catch { return false; }
+}
+const serverGuideCompleted = () => true;
+
+function LibItem({ label, sub, payload, onAdd, tone, readOnly }: { label: string; sub?: string; payload: object; onAdd: () => void; tone: string; readOnly: boolean }) {
+  return (
+    <li><button type="button" draggable={!readOnly} disabled={readOnly} onDragStart={(e) => { e.dataTransfer.setData(DND, JSON.stringify(payload)); e.dataTransfer.effectAllowed = "move"; }} onClick={onAdd} className="group flex w-full items-center gap-2 border border-transparent px-2 py-1.5 text-left hover:border-line hover:bg-panel disabled:opacity-40" title="Drag onto canvas or click to add">
+      <span aria-hidden className={`h-3 w-[2px] ${tone}`} /><span className="min-w-0 flex-1"><span className="block truncate font-mono text-[11px] tracking-wider">{label}</span>{sub && <span className="block truncate font-mono text-[9.5px] text-dim">{sub}</span>}</span><span className="font-mono text-[10px] text-dim opacity-0 group-hover:opacity-100">+</span>
+    </button></li>
+  );
+}
 
 export default function ArcBuilder(p: Props) {
   return (
@@ -51,7 +68,9 @@ function Editor({ arc, graph: g0, machines, firstArc }: Props) {
   const [testOpen, setTestOpen] = useState(false);
   const [testInput, setTestInput] = useState("");
   const [busy, setBusy] = useState<null | "test" | "deploy">(null);
-  const [guide, setGuide] = useState(false);
+  const [guideVisible, setGuide] = useState(true);
+  const savedGuideCompleted = useSyncExternalStore(subscribeGuide, guideCompleted, serverGuideCompleted);
+  const guide = firstArc && guideVisible && !savedGuideCompleted;
   const [libQ, setLibQ] = useState("");
   const { state: run, refresh } = useArcRun(arc.id, runId);
   const running = runIsActive(run?.run.status);
@@ -63,7 +82,6 @@ function Editor({ arc, graph: g0, machines, firstArc }: Props) {
   const hist = useRef<{ past: Snap[]; future: Snap[]; lastKey: string; lastAt: number }>({ past: [], future: [], lastKey: "", lastAt: 0 });
   const saving = useRef(false);
 
-  useEffect(() => { setGuide(firstArc && localStorage.getItem("marc-arc-guide") !== "done"); }, [firstArc]);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 4200); return () => clearTimeout(t); }, [toast]);
 
   const graphNow = useCallback((): Graph => ({
@@ -102,23 +120,22 @@ function Editor({ arc, graph: g0, machines, firstArc }: Props) {
 
   // ---------- Validation ----------
   const validation = useMemo(() => validateArc(graphNow(), machines), [version, machines, graphNow]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
+  const liveRun = run?.run.id === runId ? run : null;
+  const canvasNodes = useMemo(() => {
     const issues = new Map<string, "error" | "warn">();
     validation.checks.forEach((c) => { if (c.nodeKey && c.level !== "ok" && issues.get(c.nodeKey) !== "error") issues.set(c.nodeKey, c.level); });
-    setNodes((ns) => ns.map((n) => { const is = issues.get(n.id) ?? null; return n.data.issue === is ? n : { ...n, data: { ...n.data, issue: is } }; }));
-  }, [validation]);
-
-  // ---------- Live run overlay ----------
-  useEffect(() => {
-    if (!run || run.run.id !== runId) { setNodes((ns) => ns.some((n) => n.data.run) ? ns.map((n) => (n.data.run ? { ...n, data: { ...n.data, run: null } } : n)) : ns); setEdges((es) => es.map((e) => (e.data?.state !== "idle" ? { ...e, data: { state: "idle" } } : e))); return; }
-    const by = new Map(run.nodes.map((r) => [r.key, r]));
-    setNodes((ns) => ns.map((n) => {
+    const by = new Map((liveRun?.nodes ?? []).map((r) => [r.key, r]));
+    return nodes.map((n) => {
       const r = by.get(n.id); const v = r ? { status: r.status, branch: r.branch, startedAt: r.startedAt, durationMs: r.durationMs, detail: r.detail } : null;
       const c = n.data.run;
-      return c && v && c.status === v.status && c.branch === v.branch && c.detail === v.detail && c.durationMs === v.durationMs ? n : { ...n, data: { ...n.data, run: v } };
-    }));
-    setEdges((es) => es.map((e) => { const st = edgeState({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? null }, by); return e.data?.state === st ? e : { ...e, data: { state: st } }; }));
-  }, [run, runId]);
+      const issue = issues.get(n.id) ?? null;
+      return n.data.issue === issue && ((!c && !v) || (c && v && c.status === v.status && c.branch === v.branch && c.detail === v.detail && c.durationMs === v.durationMs && c.startedAt === v.startedAt)) ? n : { ...n, data: { ...n.data, issue, run: v } };
+    });
+  }, [nodes, validation, liveRun]);
+  const canvasEdges = useMemo(() => {
+    const by = new Map((liveRun?.nodes ?? []).map((r) => [r.key, r]));
+    return edges.map((e) => { const state = liveRun ? edgeState({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? null }, by) : "idle"; return e.data?.state === state ? e : { ...e, data: { state } }; });
+  }, [edges, liveRun]);
 
   // ---------- Canvas handlers ----------
   const onNodesChange = useCallback((ch: NodeChange<ArcRFNode>[]) => {
@@ -229,12 +246,6 @@ function Editor({ arc, graph: g0, machines, firstArc }: Props) {
     { t: "TEST THE ARC", d: "Run your Arc before deployment.", done: !!runId },
   ];
   const libMachines = machines.filter((m) => `${m.name} ${m.machineCode} ${m.machineType}`.toLowerCase().includes(libQ.toLowerCase()));
-  const dragStart = (payload: object) => (e: React.DragEvent) => { e.dataTransfer.setData(DND, JSON.stringify(payload)); e.dataTransfer.effectAllowed = "move"; };
-  const LibItem = ({ label, sub, payload, onAdd, tone }: { label: string; sub?: string; payload: object; onAdd: () => void; tone: string }) => (
-    <li><button type="button" draggable={!readOnly} disabled={readOnly} onDragStart={dragStart(payload)} onClick={onAdd} className="group flex w-full items-center gap-2 border border-transparent px-2 py-1.5 text-left hover:border-line hover:bg-panel disabled:opacity-40" title="Drag onto canvas or click to add">
-      <span aria-hidden className={`h-3 w-[2px] ${tone}`} /><span className="min-w-0 flex-1"><span className="block truncate font-mono text-[11px] tracking-wider">{label}</span>{sub && <span className="block truncate font-mono text-[9.5px] text-dim">{sub}</span>}</span><span className="font-mono text-[10px] text-dim opacity-0 group-hover:opacity-100">+</span>
-    </button></li>
-  );
 
   return (
     <div className="flex h-[calc(100dvh-8.5rem)] min-h-[560px] flex-col border border-line bg-bg2">
@@ -284,29 +295,29 @@ function Editor({ arc, graph: g0, machines, firstArc }: Props) {
         {/* Library */}
         <aside className="min-h-0 overflow-y-auto border-r border-line p-2" aria-label="Node library">
           <Group title="TRIGGERS"><ul>
-            <LibItem label="MANUAL TRIGGER" payload={{ type: "trigger", triggerKind: "manual" }} onAdd={() => addNode("trigger", undefined, { triggerKind: "manual" })} tone="bg-proc" />
-            <LibItem label="SCHEDULE TRIGGER" sub="runs via Automation" payload={{ type: "trigger", triggerKind: "schedule" }} onAdd={() => addNode("trigger", undefined, { triggerKind: "schedule" })} tone="bg-proc" />
-            <LibItem label="WEBHOOK TRIGGER" sub="runs via Automation" payload={{ type: "trigger", triggerKind: "webhook" }} onAdd={() => addNode("trigger", undefined, { triggerKind: "webhook" })} tone="bg-proc" />
+            <LibItem readOnly={readOnly} label="MANUAL TRIGGER" payload={{ type: "trigger", triggerKind: "manual" }} onAdd={() => addNode("trigger", undefined, { triggerKind: "manual" })} tone="bg-proc" />
+            <LibItem readOnly={readOnly} label="SCHEDULE TRIGGER" sub="runs via Automation" payload={{ type: "trigger", triggerKind: "schedule" }} onAdd={() => addNode("trigger", undefined, { triggerKind: "schedule" })} tone="bg-proc" />
+            <LibItem readOnly={readOnly} label="WEBHOOK TRIGGER" sub="runs via Automation" payload={{ type: "trigger", triggerKind: "webhook" }} onAdd={() => addNode("trigger", undefined, { triggerKind: "webhook" })} tone="bg-proc" />
           </ul></Group>
           <Group title={`MACHINES · ${machines.length}`}>
             <input type="search" value={libQ} onChange={(e) => setLibQ(e.target.value)} placeholder="Search Machines" aria-label="Search Machines" className="input mb-1 h-8 px-2 text-xs" />
             <ul>
-              {libMachines.map((m) => <LibItem key={m.id} label={m.name} sub={`${TYPE_LABEL[m.machineType] ?? m.machineType} · ${m.status.toUpperCase()} · ${m.machineCode}`} payload={{ type: "machine", machineId: m.id }} onAdd={() => addNode("machine", undefined, { machineId: m.id })} tone={m.status === "paused" ? "bg-warn" : "bg-fg"} />)}
+              {libMachines.map((m) => <LibItem readOnly={readOnly} key={m.id} label={m.name} sub={`${TYPE_LABEL[m.machineType] ?? m.machineType} · ${m.status.toUpperCase()} · ${m.machineCode}`} payload={{ type: "machine", machineId: m.id }} onAdd={() => addNode("machine", undefined, { machineId: m.id })} tone={m.status === "paused" ? "bg-warn" : "bg-fg"} />)}
               {!machines.length && <li className="t-caption px-2 py-2">No Machines yet. <Link href="/app/machines/new" className="underline">Create one</Link>.</li>}
             </ul>
           </Group>
           <Group title="LOGIC"><ul>
-            <LibItem label="DECISION" sub="TRUE / FALSE branch" payload={{ type: "decision" }} onAdd={() => addNode("decision")} tone="bg-amber" />
-            <LibItem label="DELAY" sub="wait, then continue" payload={{ type: "delay" }} onAdd={() => addNode("delay")} tone="bg-mute" />
-            <LibItem label="HUMAN REVIEW" sub="operator approval" payload={{ type: "human_review" }} onAdd={() => addNode("human_review")} tone="bg-warn" />
+            <LibItem readOnly={readOnly} label="DECISION" sub="TRUE / FALSE branch" payload={{ type: "decision" }} onAdd={() => addNode("decision")} tone="bg-amber" />
+            <LibItem readOnly={readOnly} label="DELAY" sub="wait, then continue" payload={{ type: "delay" }} onAdd={() => addNode("delay")} tone="bg-mute" />
+            <LibItem readOnly={readOnly} label="HUMAN REVIEW" sub="operator approval" payload={{ type: "human_review" }} onAdd={() => addNode("human_review")} tone="bg-warn" />
           </ul></Group>
-          <Group title="OUTPUT"><ul><LibItem label="FINAL OUTPUT" payload={{ type: "output" }} onAdd={() => addNode("output")} tone="bg-ok" /></ul></Group>
+          <Group title="OUTPUT"><ul><LibItem readOnly={readOnly} label="FINAL OUTPUT" payload={{ type: "output" }} onAdd={() => addNode("output")} tone="bg-ok" /></ul></Group>
         </aside>
 
         {/* Canvas */}
         <div ref={wrap} className="relative min-h-0" onDragOver={(e) => { if (e.dataTransfer.types.includes(DND)) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; } }}
           onDrop={(e) => { const raw = e.dataTransfer.getData(DND); if (!raw) return; e.preventDefault(); const d = JSON.parse(raw); const pos = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); addNode(d.type, { x: pos.x - 106, y: pos.y - 30 }, d); }}>
-          <ReactFlow<ArcRFNode, ArcRFEdge> nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
+          <ReactFlow<ArcRFNode, ArcRFEdge> nodes={canvasNodes} edges={canvasEdges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
             onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect}
             onNodeDragStart={() => commit()} onBeforeDelete={async () => { if (readOnly) return false; commit(); return true; }}
             onSelectionChange={({ nodes: ns, edges: es }) => { setSelNode(ns.length === 1 ? ns[0].id : null); setSelEdge(!ns.length && es.length === 1 ? es[0].id : null); if (ns.length === 1 && running) setRunSel(ns[0].id); }}

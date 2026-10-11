@@ -39,3 +39,11 @@ The connected Supabase project runs `machinarc-worker-minute` through `pg_cron` 
 Real AI execution requires an OpenAI or Anthropic API key. Add it through Settings → Integrations in a registered workspace, then configure a Machine to use that provider and an available model. Demo workspaces always use Mock Runtime.
 
 Start with a short task and no external action tools. Inspect its run to confirm the requested provider, output, usage, and cost are recorded without a mock fallback. Then enable a calculator tool and verify its request and result appear in telemetry. Validate any action that requires approval separately before connecting destinations with real effects. No real-provider acceptance test has been completed yet.
+
+## Network and accounting
+
+The public Network catalog is a demonstration: its Machines, owners, ratings, task counts and prices are examples. Simulated hires check permissions and approval behavior but never execute another Machine, create a transaction or deduct Credits. Delegation to actual Machines within a workspace uses the existing runtime separately.
+
+Economy totals cover all completed Credit transactions; the table shows the latest 100. Real-provider USD estimates come from run telemetry, exclude Mock Runtime, disclose unpriced records, and neither debit internal Credits nor offset net Credits. Existing historical Credit records and balances are preserved. Provider estimates are not invoices or a currency conversion.
+
+GitHub Checks runs static checks, unit tests, a production build and the integration suite against a disposable PostgreSQL service with the privileges required by the rolled-back RLS probe. See `PILOT.md` for pilot gates and session tasks.

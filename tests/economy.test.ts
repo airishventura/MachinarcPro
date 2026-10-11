@@ -8,6 +8,7 @@ import { getEconomyState } from "@/lib/economy/queries";
 import { MachineRuntime } from "@/lib/runtime/machine-runtime";
 import { createMachine } from "@/lib/machines/service";
 import { DEFAULT_PERMISSIONS } from "@/config/tools";
+import type { AIProvider } from "@/lib/ai/types";
 
 after(() => pool.end());
 
@@ -52,4 +53,23 @@ test("an approved catalog hire remains simulated and never writes transactions o
     assert.equal((await db.select().from(transactions).where(eq(transactions.workspaceId, ws.id))).length, 0);
     assert.equal((await db.select().from(workspaces).where(eq(workspaces.id, ws.id)))[0].credits, 50);
   } finally { await db.delete(workspaces).where(eq(workspaces.id, ws.id)); }
+});
+
+test("provider USD estimates are recorded without debiting internal Credits", async () => {
+  const [ws] = await db.insert(workspaces).values({ name: "PROVIDER-ACCOUNTING", credits: 50 }).returning();
+  try {
+    const m = await createMachine(ws.id, { name: "PROVIDER-COST", objective: "Accounting fixture.", tools: [] }, "idle");
+    MachineRuntime.providerOverride = {
+      name: "openai", supportsToolCalling: () => true, normalizeUsage: (usage) => usage as never, calculateEstimatedCost: () => 0.5,
+      async generate() { return { content: "Accounting fixture complete.", toolCalls: [], usage: { inputTokens: 10, outputTokens: 5, cachedTokens: 0 }, finishReason: "stop", providerMetadata: { provider: "openai", model: "fixture", latencyMs: 1 } }; },
+    } satisfies AIProvider;
+    const rt = await MachineRuntime.load(m.id, ws.id);
+    const { run } = await rt.createRun("record provider cost", "test");
+    assert.equal((await rt.execute(run.id)).status, "completed");
+    assert.equal((await getEconomyState(ws.id)).compute, 0.5);
+    assert.equal((await db.select().from(workspaces).where(eq(workspaces.id, ws.id)))[0].credits, 50);
+  } finally {
+    MachineRuntime.providerOverride = null;
+    await db.delete(workspaces).where(eq(workspaces.id, ws.id));
+  }
 });

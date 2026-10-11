@@ -257,7 +257,8 @@ export class MachineRuntime {
       await db.insert(runUsage).values({ machineRunId: run.id, provider: provider.name, model, ...res.usage, cost: c, latencyMs: res.providerMetadata.latencyMs, finishReason: res.finishReason });
       if (c) {
         await db.insert(usageRecords).values({ workspaceId: m.workspaceId, machineId: m.id, tokens: res.usage.inputTokens + res.usage.outputTokens, cost: c });
-        await db.update(workspaces).set({ credits: sql`${workspaces.credits} - ${c}` }).where(eq(workspaces.id, m.workspaceId));
+        // Provider estimates are USD telemetry; billing is handled by the provider.
+        // Do not apply an implicit USD-to-Credits conversion to internal balances.
         if (m.dailyBudget > 0 && before < m.dailyBudget * 0.8 && before + c >= m.dailyBudget * 0.8) await this.activity("economy", `${m.name} reached 80% of daily budget.`, "warning");
       }
       obs("provider.response", { runId: run.id, provider: provider.name, model, ...res.usage, finish: res.finishReason, latencyMs: res.providerMetadata.latencyMs });

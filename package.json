@@ -8,7 +8,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "tsx --conditions=react-server --test tests/auth-security.test.ts tests/recovery.test.ts tests/test-database.test.ts tests/worker-loop.test.ts tests/demo-retention.test.ts",
-    "test:integration": "tsx --conditions=react-server --test tests/phase3.test.ts tests/phase4.test.ts tests/runtime-recovery.test.ts tests/auth-integration.test.ts tests/trigger-idempotency.test.ts tests/shared-rate-limit.test.ts tests/demo-cleanup.test.ts tests/economy.test.ts",
+    "test:integration": "tsx --conditions=react-server --test --test-concurrency=1 tests/phase3.test.ts tests/phase4.test.ts tests/runtime-recovery.test.ts tests/auth-integration.test.ts tests/trigger-idempotency.test.ts tests/shared-rate-limit.test.ts tests/demo-cleanup.test.ts tests/economy.test.ts",
     "worker": "tsx --conditions=react-server scripts/worker.ts"
   },
   "dependencies": {
