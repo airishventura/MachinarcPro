@@ -180,7 +180,7 @@ export function MachineBuilder({ initial, available }: { initial?: Partial<Machi
             <div className="grid grid-cols-3 gap-3">
               <Num id="db" label="Daily budget ($)" v={d.dailyBudget} on={(v) => up("dailyBudget", v)} min={0} step={0.5} />
               <Num id="mb" label="Monthly budget ($)" v={d.monthlyBudget} on={(v) => up("monthlyBudget", v)} min={0} />
-              <Num id="mt" label="Max task cost ($)" v={d.maxTaskCost} on={(v) => up("maxTaskCost", v)} min={0.01} step={0.05} />
+              <Num id="mt" label="Max task cost ($)" v={d.maxTaskCost} on={(v) => up("maxTaskCost", v)} min={0.01} step={0.01} />
             </div>
             <fieldset><legend className="label mb-1.5">Permissions</legend>
               <div className="divide-y divide-line border border-line">{PERMISSIONS.map((p) => (
