@@ -69,7 +69,7 @@ export default async function RunInspector({ params }: { params: Promise<{ id: s
 
       {run.error && <section className="border border-bad/50 bg-bad/5 p-4" role="alert"><div className="t-section !text-bad">{run.status.replace(/_/g, " ").toUpperCase()}</div><p className="mt-1 text-sm">{run.error}</p>{run.errorKind?.startsWith("provider_auth") && <Link className="btn mt-3 h-8" href="/app/settings/integrations">Update Credentials</Link>}</section>}
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <section aria-labelledby="exec"><h2 id="exec" className="label mb-2">EXECUTION TIMELINE <span className="normal-case text-dim">· operational telemetry, not model reasoning</span></h2>
           <ol className="max-h-[560px] overflow-y-auto border border-line bg-[#070707] p-3 font-mono text-[12px] leading-6">
             {logs.map((l) => <li key={l.id} className="grid grid-cols-[62px_118px_1fr] gap-2"><span className="text-dim tabular-nums">{((l.createdAt.getTime() - t0) / 1000).toFixed(1).padStart(5, "0")}</span><span className={LEVEL[l.level] ?? "text-mute"}>{l.level}</span><span className="break-words text-fg/90">{l.toolExecutionId ? <a href={`#tool-${l.toolExecutionId}`} className="hover:underline">{l.message}</a> : l.message}</span></li>)}
