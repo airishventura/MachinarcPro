@@ -17,6 +17,14 @@ const fromNet = (e: unknown): ToolResult => {
 // ---------------- Search providers ----------------
 type SearchHit = { title: string; url: string; snippet: string; source: string; published?: string };
 interface SearchProvider { id: string; label: string; search(q: string, n: number, opts: { domains?: string[]; freshness?: string; signal: AbortSignal }): Promise<SearchHit[]> }
+function filterSearchHits(hits: SearchHit[], domains?: string[]) {
+  return hits.filter((hit) => {
+    try {
+      const url = new URL(hit.url);
+      return (url.protocol === "http:" || url.protocol === "https:") && !url.username && !url.password && !!url.hostname && (!domains?.length || hostAllowed(url.hostname, domains));
+    } catch { return false; }
+  });
+}
 
 const bingRss: SearchProvider = {
   id: "bing_rss", label: "Bing (keyless RSS)",
@@ -74,8 +82,11 @@ const webSearch: Tool = {
   async execute(a, ctx) {
     const { provider } = await resolveSearchProvider(ctx.workspaceId);
     try {
-      const hits = await provider.search(String(a.query), Number(a.max_results ?? 6), { domains: a.domains as string[] | undefined, freshness: a.freshness as string | undefined, signal: ctx.signal });
-      return { ok: true, data: { provider: provider.label, results: hits }, preview: `${hits.length} results via ${provider.label}`, sources: [] };
+      const domains = a.domains as string[] | undefined;
+      const hits = await provider.search(String(a.query), Number(a.max_results ?? 6), { domains, freshness: a.freshness as string | undefined, signal: ctx.signal });
+      const results = filterSearchHits(hits, domains);
+      const excluded = hits.length - results.length;
+      return { ok: true, data: { provider: provider.label, results }, preview: `${results.length} results via ${provider.label}${excluded ? ` (${excluded} ignored outside requested domains or with invalid URLs)` : ""}`, sources: [] };
     } catch (e) { return fromNet(e); }
   },
   async simulate(a) {
