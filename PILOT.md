@@ -7,7 +7,7 @@ Status: preparation only. No participants have been recruited and no user result
 - Real-provider acceptance: short task, calculator call, approval and resume; verify output, usage and estimated USD cost. Currently deferred by the operator.
 - Disposable-database integration suite, including the RLS probe, passes.
 - Desktop and phone checks cover onboarding, Machine creation, approval, run inspection and error recovery.
-- Verify a hosted interrupted run recovers without repeating an external action. Use an isolated staging deployment and harmless destination, rather than disrupting production.
+- Hosted calculator and external-write interruption acceptance passed on 14 October 2026: actual SIGKILL in disposable Vercel Sandboxes, followed by recovery through the protected staging scheduler after natural lease expiry. Completed results were reused; unknown outcomes stopped without replay. A temporary HTTPS receiver counted exactly one real POST per external-write case; neither write was repeated.
 
 ## Sessions
 

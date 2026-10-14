@@ -2,9 +2,10 @@
 import "./helpers/setup-test-database";
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, pool } from "@/db";
-import { approvalRequests, machineRuns, toolExecutions, workspaces } from "@/db/schema";
+import { approvalRequests, jobs, machineRuns, toolExecutions, workspaces } from "@/db/schema";
+import { enqueue } from "@/lib/queue/queue";
 import { MachineRuntime } from "@/lib/runtime/machine-runtime";
 import { createMachine, draftDefaults } from "@/lib/machines/service";
 import { machineCode } from "@/lib/domain";
@@ -42,6 +43,30 @@ async function fixture(calls: ToolCall[]) {
 }
 
 const calculator: ToolCall = { id: "calc", name: "calculator", args: { expression: "1 + 1" } };
+
+test("UI recovery preserves an approved run queued between hosted worker ticks", async () => {
+  const { machine, run } = await fixture([calculator]);
+  await db.update(machineRuns).set({ createdAt: new Date(Date.now() - 240_000), lockUntil: null }).where(eq(machineRuns.id, run.id));
+  await enqueue("machine.execute", { runId: run.id }, { workspaceId, dedupeKey: `machine:${run.id}` });
+  await MachineRuntime.reapStale(machine.id);
+  const [persisted] = await db.select().from(machineRuns).where(eq(machineRuns.id, run.id));
+  assert.equal(persisted.status, "running");
+  const queued = await db.select().from(jobs).where(and(eq(jobs.workspaceId, workspaceId), eq(jobs.dedupeKey, `machine:${run.id}`)));
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].status, "queued");
+});
+
+test("UI recovery requeues a vanished driver instead of terminating recoverable work", async () => {
+  const { machine, runtime, run } = await fixture([calculator]);
+  await db.update(machineRuns).set({ createdAt: new Date(Date.now() - 240_000), lockUntil: new Date(Date.now() - 1_000) }).where(eq(machineRuns.id, run.id));
+  await MachineRuntime.reapStale(machine.id);
+  const [persisted] = await db.select().from(machineRuns).where(eq(machineRuns.id, run.id));
+  assert.equal(persisted.status, "running");
+  const queued = await db.select().from(jobs).where(and(eq(jobs.workspaceId, workspaceId), eq(jobs.dedupeKey, `machine:${run.id}`)));
+  assert.equal(queued.length, 1);
+  MachineRuntime.providerOverride = provider(req => assert.ok(req.messages.some(message => message.role === "tool" && message.toolCallId === calculator.id)));
+  assert.equal((await runtime.execute(run.id)).status, "completed");
+});
 
 test("a persisted assistant call without an execution is answered before the provider continues", async () => {
   const { runtime, run } = await fixture([calculator]);

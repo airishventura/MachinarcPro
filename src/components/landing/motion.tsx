@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import SpotlightCard from "@/components/react-bits/spotlight-card";
 
 // ---------- primitives ----------
 const RM = "(prefers-reduced-motion: reduce)";
@@ -143,12 +144,12 @@ export function Parallax({ children, speed = 0.25, className = "" }: { children:
 
 // ---------- Cursor spotlight card ----------
 export function Spotlight({ children, className = "" }: { children: ReactNode; className?: string }) {
-  const ref = useRef<HTMLDivElement>(null);
+  const reduced = useReducedMotion();
   return (
-    <div ref={ref} className={`spotlight relative ${className}`}
-      onPointerMove={(e) => { const r = ref.current!.getBoundingClientRect(); ref.current!.style.setProperty("--mx", `${e.clientX - r.left}px`); ref.current!.style.setProperty("--my", `${e.clientY - r.top}px`); }}>
+    <SpotlightCard className={className} spotlightColor="#d9c9a8" intensity={0.12} borderGlow={0.22} spotlightSize={260} proximity={0} smoothing={reduced ? 0 : 0.16} flare={false} ambient={false}
+      style={{ "--spotlight-card-surface": "var(--color-bg)", "--spotlight-card-border": "var(--color-line)", "--spotlight-card-shadow": "none" } as CSSProperties}>
       {children}
-    </div>
+    </SpotlightCard>
   );
 }
 

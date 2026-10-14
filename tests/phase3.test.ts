@@ -21,7 +21,6 @@ import { getMachineState } from "@/lib/machines/queries";
 import { ensureIntegration, setSecret } from "@/lib/integrations/service";
 import { db as _db } from "@/db";
 import { workspaceIntegrations } from "@/db/schema";
-import { machineCode } from "@/lib/domain";
 import { instantiateTemplate } from "@/lib/arcs/service";
 import { ArcRuntime } from "@/lib/arcs/runtime";
 import { getRunState } from "@/lib/arcs/queries";
@@ -29,8 +28,9 @@ import { drainOnce } from "@/lib/queue/worker";
 
 const tools = (ids: string[]) => draftDefaults().tools.map((t) => ({ ...t, enabled: ids.includes(t.id) }));
 let WS = "", WS2 = "";
+let fixtureCode = 1000;
 async function mk(name: string, p: Parameters<typeof createMachine>[1] = {}, ws = WS) {
-  return createMachine(ws, { name, machineType: "research", machineCode: machineCode("research"), objective: "Research things carefully for testing.", ...p }, "idle");
+  return createMachine(ws, { name, machineType: "research", machineCode: `MARC-PTT-${fixtureCode++}`, objective: "Research things carefully for testing.", ...p }, "idle");
 }
 async function run(m: { id: string; workspaceId: string }, input: string, prep?: (runId: string) => Promise<void>) {
   const rt = await MachineRuntime.load(m.id, m.workspaceId);

@@ -130,15 +130,12 @@ export class MachineRuntime {
     }
   }
 
-  /** Marks runs whose driver died (server restart) as interrupted so the UI never shows a forever-pending run. */
+  /** Recover vanished drivers through the durable queue, including between hosted scheduler ticks. */
   static async reapStale(machineId: string) {
-    const { liveWorkers } = await import("@/lib/queue/worker");
-    if ((await liveWorkers()).length) return; // a live worker's orphan sweep will resume these runs instead
-    const stale = await db.select().from(machineRuns).where(and(eq(machineRuns.machineId, machineId), inArray(machineRuns.status, ["initializing", "running", "waiting_tool"]), or(lt(machineRuns.lockUntil, new Date()), and(isNull(machineRuns.lockUntil), lt(machineRuns.createdAt, new Date(Date.now() - LOCK_MS))))));
-    for (const r of stale) {
-      const [m] = await db.select().from(machines).where(eq(machines.id, r.machineId));
-      if (m) await new MachineRuntime(m).finish(r, new Stop("failed", "RUNTIME INTERRUPTED — the execution process stopped unexpectedly. Retry the task.", "interrupted"));
-    }
+    const [machine] = await db.select({ workspaceId: machines.workspaceId }).from(machines).where(eq(machines.id, machineId));
+    if (!machine) return;
+    const { recoverOrphans } = await import("@/lib/queue/worker");
+    await recoverOrphans(machine.workspaceId);
   }
 
   // ---------------------------------------------------------------- execution
