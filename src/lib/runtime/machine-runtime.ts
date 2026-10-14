@@ -495,7 +495,7 @@ export class MachineRuntime {
       const res = await generate({ model, messages, tools: useTools ? tools.map((t) => ({ name: t.tool.id, description: t.tool.description, parameters: t.tool.inputSchema })) : undefined, temperature: m.temperature, reasoningEffort: (m.reasoning as "low" | "medium" | "high") || undefined, responseSchema: schema && !useTools ? { name: m.outputSchema!.name || "output", schema } : undefined });
       await recordUsage(res);
       const calls = res.toolCalls.slice(0, 8);
-      messages.push({ role: "assistant", content: res.content, toolCalls: calls.length ? calls : undefined });
+      messages.push({ role: "assistant", content: res.content, toolCalls: calls.length ? calls : undefined, ...(res.providerItems ? { providerItems: res.providerItems } : {}) });
       if (calls.length) {
         if (res.content.trim()) await L("PLAN", firstSentence(res.content));
         await persist();

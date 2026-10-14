@@ -4,7 +4,7 @@ export type ToolCall = { id: string; name: string; args: Record<string, unknown>
 export type ChatMessage =
   | { role: "system"; content: string }
   | { role: "user"; content: string }
-  | { role: "assistant"; content: string; toolCalls?: ToolCall[] }
+  | { role: "assistant"; content: string; toolCalls?: ToolCall[]; providerItems?: Record<string, unknown>[] }
   | { role: "tool"; content: string; toolCallId: string; toolName: string };
 export type ToolSpec = { name: string; description: string; parameters: JSONSchema };
 export type Usage = { inputTokens: number; outputTokens: number; cachedTokens: number };
@@ -17,6 +17,7 @@ export type GenerateRequest = {
 export type GenerateResponse = {
   content: string; toolCalls: ToolCall[]; usage: Usage; finishReason: FinishReason;
   providerMetadata: { provider: string; model: string; latencyMs: number; requestId?: string };
+  providerItems?: Record<string, unknown>[];
 };
 
 export type ProviderErrorKind = "auth" | "quota" | "rate_limit" | "context_length" | "unavailable" | "invalid_model" | "bad_request" | "timeout" | "cancelled";
@@ -26,7 +27,7 @@ export class ProviderError extends Error {
 }
 
 export interface AIProvider {
-  readonly name: "openai" | "anthropic" | "mock";
+  readonly name: "openai" | "anthropic" | "mock" | "chatgpt";
   generate(req: GenerateRequest): Promise<GenerateResponse>;
   supportsToolCalling(model: string): boolean;
   calculateEstimatedCost(model: string, usage: Usage): number | null;

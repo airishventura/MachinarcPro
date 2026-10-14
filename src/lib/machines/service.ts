@@ -3,6 +3,8 @@ import { db } from "@/db";
 import { activities, machinePermissions, machines, machineTools } from "@/db/schema";
 import { PERMISSIONS, TOOL_CATALOG } from "@/config/tools";
 import { draftDefaults, validateDraft, type MachineDraft } from "@/lib/machines/drafts";
+import { MODELS } from "@/config/models";
+import { chatgptLocalStatus } from "@/lib/integrations/chatgpt-local";
 
 export { validateDraft, draftDefaults };
 export type { MachineDraft };
@@ -12,7 +14,8 @@ const cleanDomains = (d?: string[]) => (d ?? []).map((x) => x.trim().toLowerCase
 /** Persists a Machine (INITIALIZING) with tools + explicit permissions. Server is the source of truth for every field. */
 export async function createMachine(workspaceId: string, input: Partial<MachineDraft>, status: "initializing" | "idle" = "initializing") {
   const d = draftDefaults(input);
-  const invalid = validateDraft(d);
+  const local = d.modelProvider === "chatgpt" ? await chatgptLocalStatus(workspaceId) : null;
+  const invalid = validateDraft(d, [...MODELS, ...(local?.models ?? [])]);
   if (invalid) throw new Error(invalid);
   const [m] = await db.insert(machines).values({
     workspaceId, name: d.name.trim().toUpperCase(), machineCode: d.machineCode, machineType: d.machineType, description: d.description.trim(),

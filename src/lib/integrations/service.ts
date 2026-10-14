@@ -5,8 +5,10 @@ import { integrationCredentials, workspaceIntegrations, workspaceMembers, worksp
 import { PROVIDERS, type ProviderId } from "@/config/models";
 import { decrypt, encrypt, hintOf } from "@/lib/security/crypto";
 import { AnthropicProvider, MockProvider, OpenAIProvider } from "@/lib/ai/providers";
-import type { AIProvider } from "@/lib/ai/types";
+import { ProviderError, type AIProvider } from "@/lib/ai/types";
 import { obs } from "@/lib/security/redact";
+import { ChatgptProvider } from "@/lib/ai/chatgpt-provider";
+import { assertLocalChatgpt, chatgptAccess } from "@/lib/integrations/chatgpt-local";
 
 export type IntegrationStatus = "connected" | "not_connected" | "configuration_required" | "error" | "auth_error";
 
@@ -61,6 +63,13 @@ export type ResolvedProvider = { provider: AIProvider; mode: "workspace" | "plat
 /** Workspace credential > platform env key > Mock Runtime (clearly labeled fallback). */
 export async function resolveProvider(workspaceId: string, requested: string): Promise<ResolvedProvider> {
   if (await isDemoWorkspace(workspaceId)) return { provider: new MockProvider(), mode: "mock", requested, fallback: requested !== "mock", secrets: [] };
+  if (requested === "chatgpt") {
+    assertLocalChatgpt();
+    const members = await db.select().from(workspaceMembers).where(eq(workspaceMembers.workspaceId, workspaceId));
+    if (members.length !== 1 || members[0].role !== "owner") throw new ProviderError("auth", "ChatGPT plan use is limited to a personal local workspace with one owner.");
+    const access = await chatgptAccess(workspaceId); // Fail before resuming pending tools after disconnect or invalid refresh.
+    return { provider: new ChatgptProvider(workspaceId), mode: "workspace", requested, fallback: false, secrets: [access.token] };
+  }
   if (requested === "openai" || requested === "anthropic") {
     const row = await getIntegration(workspaceId, requested);
     const ws = row ? await getSecret(workspaceId, row.id) : null;

@@ -83,7 +83,7 @@ export async function finishOnboarding() {
 
 export async function deployMachineAction(d: MachineDraft): Promise<{ id: string } | { error: string }> {
   const s = await requireSession();
-  const invalid = validateDraft(d);
+  const invalid = d.modelProvider === "chatgpt" ? null : validateDraft(d); // createMachine validates the local account catalog server-side.
   if (invalid) return { error: invalid };
   try {
     const m = await createMachine(s.workspace.id, d);
