@@ -5,6 +5,7 @@ import { redact } from "@/lib/security/redact";
 import { calculate } from "@/lib/tools/calculator";
 import { schemaFromFields } from "@/lib/tools/schema";
 import { getIntegration, getSecret } from "@/lib/integrations/service";
+import { filterSearchHits } from "@/lib/tools/search-results";
 import type { Tool, ToolContext, ToolResult } from "@/lib/tools/types";
 
 const host = (u: unknown) => { try { return new URL(String(u)).hostname; } catch { return String(u ?? "").slice(0, 60); } };
@@ -17,15 +18,6 @@ const fromNet = (e: unknown): ToolResult => {
 // ---------------- Search providers ----------------
 type SearchHit = { title: string; url: string; snippet: string; source: string; published?: string };
 interface SearchProvider { id: string; label: string; search(q: string, n: number, opts: { domains?: string[]; freshness?: string; signal: AbortSignal }): Promise<SearchHit[]> }
-function filterSearchHits(hits: SearchHit[], domains?: string[]) {
-  return hits.filter((hit) => {
-    try {
-      const url = new URL(hit.url);
-      return (url.protocol === "http:" || url.protocol === "https:") && !url.username && !url.password && !!url.hostname && (!domains?.length || hostAllowed(url.hostname, domains));
-    } catch { return false; }
-  });
-}
-
 const bingRss: SearchProvider = {
   id: "bing_rss", label: "Bing (keyless RSS)",
   async search(q, n, { domains, signal }) {
@@ -84,7 +76,7 @@ const webSearch: Tool = {
     try {
       const domains = a.domains as string[] | undefined;
       const hits = await provider.search(String(a.query), Number(a.max_results ?? 6), { domains, freshness: a.freshness as string | undefined, signal: ctx.signal });
-      const results = filterSearchHits(hits, domains);
+      const results = filterSearchHits(hits, domains, String(a.query));
       const excluded = hits.length - results.length;
       return { ok: true, data: { provider: provider.label, results }, preview: `${results.length} results via ${provider.label}${excluded ? ` (${excluded} ignored outside requested domains or with invalid URLs)` : ""}`, sources: [] };
     } catch (e) { return fromNet(e); }
