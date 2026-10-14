@@ -1,4 +1,6 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
+import { getJobContext, jobContext } from "@/lib/runtime/job-context";
 import { and, eq, gte, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { activities, approvalRequests, machineCallRelationships, machineLogs, machinePermissions, machineRuns, machines, machineTasks, machineTools, runSources, runUsage, toolExecutions, usageRecords, workspaces, type TaskResult } from "@/db/schema";
@@ -12,13 +14,14 @@ import type { Tool, ToolContext, ToolResult } from "@/lib/tools/types";
 import { evaluatePermission } from "@/lib/runtime/permissions";
 import { MachinePromptBuilder, wrapExternal } from "@/lib/runtime/prompt-builder";
 import { retrieveMemories, writeMemory } from "@/lib/runtime/memory";
-import { obs, redact, redactString } from "@/lib/security/redact";
+import { errorSummary, obs, redact, redactString } from "@/lib/security/redact";
 import { LIMITS, rateLimit } from "@/lib/security/rate-limit";
 import { outstandingToolCalls } from "@/lib/runtime/recovery";
 import { activeRuntimeMs } from "@/lib/runtime/active-runtime";
 
 type Machine = typeof machines.$inferSelect;
 type Run = typeof machineRuns.$inferSelect;
+export class RuntimeLeaseLostError extends Error { constructor() { super("Runtime ownership was lost; execution stopped for recovery."); } }
 export class RuntimeError extends Error { constructor(public userMessage: string) { super(userMessage); } }
 
 export type RunOutcome =
@@ -51,6 +54,27 @@ export class MachineRuntime {
   /** Test-only hook: forces a provider for every run in this process. */
   static providerOverride: AIProvider | null = null;
   private constructor(public machine: Machine) {}
+  private lease?: { owner: string; controller: AbortController };
+
+  private ownedWhere(runId: string) {
+    return and(eq(machineRuns.id, runId), notInArray(machineRuns.status, [...TERMINAL]), this.lease ? and(eq(machineRuns.lockOwner, this.lease.owner), sql`${machineRuns.lockUntil} > (now() at time zone 'UTC')`) : undefined);
+  }
+
+  private executionOwned(runId: string) {
+    return this.lease ? sql`exists (select 1 from machine_runs where id = ${runId} and lock_owner = ${this.lease.owner} and lock_until > (now() at time zone 'UTC') and status not in ('completed','failed','cancelled','budget_exceeded','timeout'))` : undefined;
+  }
+
+  private async assertOwned(runId: string) {
+    const lease = this.lease;
+    if (!lease) return;
+    if (lease.controller.signal.reason instanceof RuntimeLeaseLostError) throw lease.controller.signal.reason;
+    const [owned] = await db.select({ id: machineRuns.id }).from(machineRuns).where(this.ownedWhere(runId));
+    if (!owned) {
+      const error = new RuntimeLeaseLostError();
+      lease.controller.abort(error);
+      throw error;
+    }
+  }
 
   static async load(machineId: string, workspaceId: string, reader: Pick<typeof db, "select"> = db) {
     const [m] = await reader.select().from(machines).where(and(eq(machines.id, machineId), eq(machines.workspaceId, workspaceId)));
@@ -83,7 +107,7 @@ export class MachineRuntime {
       await this.writeLog("SYSTEM", `Machine online · ${this.machine.machineCode}`);
       await this.activity("machines", `${this.machine.name} deployed successfully.`, "success");
     } catch (e) {
-      obs("machine.deploy_failed", { machineId: this.machine.id, error: String(e) });
+      obs("machine.deploy_failed", { machineId: this.machine.id, error: errorSummary(e) });
       await db.update(machines).set({ status: "failed" }).where(eq(machines.id, this.machine.id));
       await this.writeLog("ERROR", "Initialization failed. Retry deployment.");
     }
@@ -139,8 +163,9 @@ export class MachineRuntime {
   }
 
   // ---------------------------------------------------------------- execution
-  async execute(runId: string): Promise<RunOutcome> {
-    const [run] = await db.update(machineRuns).set({ lockUntil: new Date(Date.now() + LOCK_MS) })
+  async execute(runId: string, driverSignal?: AbortSignal): Promise<RunOutcome> {
+    const owner = randomUUID();
+    const [run] = await db.update(machineRuns).set({ lockUntil: new Date(Date.now() + LOCK_MS), lockOwner: owner })
       .where(and(eq(machineRuns.id, runId), or(isNull(machineRuns.lockUntil), lt(machineRuns.lockUntil, new Date())), notInArray(machineRuns.status, [...TERMINAL, "waiting_approval"]))).returning();
     if (!run) {
       // Waiting-approval runs are claimed only after the approval is resolved (status flips to "running").
@@ -149,16 +174,37 @@ export class MachineRuntime {
     }
     const ctrl = new AbortController();
     controllers.set(runId, ctrl);
+    this.lease = { owner, controller: ctrl };
+    const parentSignals = [getJobContext()?.signal, driverSignal].filter((signal): signal is AbortSignal => !!signal);
+    const jobSignal = parentSignals.length ? AbortSignal.any(parentSignals) : undefined;
+    const abortJob = () => ctrl.abort(new RuntimeLeaseLostError());
+    if (jobSignal?.aborted) abortJob();
+    else jobSignal?.addEventListener("abort", abortJob, { once: true });
+    let renewing = false;
+    const heartbeat = setInterval(() => {
+      if (renewing) return;
+      renewing = true;
+      void db.update(machineRuns).set({ lockUntil: new Date(Date.now() + LOCK_MS) }).where(this.ownedWhere(runId)).returning({ id: machineRuns.id })
+        .then((rows) => { if (!rows.length) abortJob(); })
+        .catch(abortJob).finally(() => { renewing = false; });
+    }, 30_000);
     try {
-      return await this.loop(run, ctrl);
+      await this.assertOwned(runId);
+      const job = getJobContext();
+      return await (job ? jobContext.run({ ...job, runId, machineId: this.machine.id }, () => this.loop(run, ctrl)) : this.loop(run, ctrl));
     } catch (e) {
+      if (e instanceof RuntimeLeaseLostError || ctrl.signal.reason instanceof RuntimeLeaseLostError) throw ctrl.signal.reason instanceof RuntimeLeaseLostError ? ctrl.signal.reason : e;
+      await this.assertOwned(runId);
       const stop = this.classify(e);
-      if (stop.kind === "internal") obs("run.internal_error", { runId, error: e instanceof Error ? e.stack : String(e) });
+      if (stop.kind === "internal") obs("run.internal_error", { runId, error: errorSummary(e) });
       const [cur] = await db.select().from(machineRuns).where(eq(machineRuns.id, runId));
-      return this.finish(cur ?? run, stop);
+      return await this.finish(cur ?? run, stop);
     } finally {
-      controllers.delete(runId);
-      await db.update(machineRuns).set({ lockUntil: null }).where(eq(machineRuns.id, runId));
+      clearInterval(heartbeat);
+      jobSignal?.removeEventListener("abort", abortJob);
+      if (controllers.get(runId) === ctrl) controllers.delete(runId);
+      await db.update(machineRuns).set({ lockUntil: null, lockOwner: null }).where(and(eq(machineRuns.id, runId), eq(machineRuns.lockOwner, owner)));
+      this.lease = undefined;
     }
   }
 
@@ -203,9 +249,12 @@ export class MachineRuntime {
     let messages = (run.messages ?? []) as ChatMessage[];
     const cost = () => st.aiCost + st.toolCost + st.childCost;
     const persist = async (extra: Partial<typeof machineRuns.$inferInsert> = {}) => {
-      await db.update(machineRuns).set({ turns: st.turns, toolCalls: st.toolCalls, inputTokens: st.inT, outputTokens: st.outT, cachedTokens: st.cT, tokens: st.inT + st.outT, aiCost: st.aiCost, toolCost: st.toolCost, childCost: st.childCost, cost: cost(), pricingKnown: st.pricingKnown, approvedTools: st.approved, messages, lockUntil: new Date(Date.now() + LOCK_MS), ...extra }).where(eq(machineRuns.id, run.id));
+      await this.assertOwned(run.id);
+      const [saved] = await db.update(machineRuns).set({ turns: st.turns, toolCalls: st.toolCalls, inputTokens: st.inT, outputTokens: st.outT, cachedTokens: st.cT, tokens: st.inT + st.outT, aiCost: st.aiCost, toolCost: st.toolCost, childCost: st.childCost, cost: cost(), pricingKnown: st.pricingKnown, approvedTools: st.approved, messages, lockUntil: new Date(Date.now() + LOCK_MS), ...extra }).where(this.ownedWhere(run.id)).returning({ id: machineRuns.id });
+      if (!saved) throw new RuntimeLeaseLostError();
     };
     const checkCancel = async () => {
+      await this.assertOwned(run.id);
       const [c] = await db.select({ c: machineRuns.cancelRequested }).from(machineRuns).where(eq(machineRuns.id, run.id));
       if (c?.c || ctrl.signal.aborted) throw new Stop("cancelled", "RUN CANCELLED BY OPERATOR — no further tool calls were started.", "cancelled");
     };
@@ -219,8 +268,9 @@ export class MachineRuntime {
 
     // ---------- Initialize ----------
     if (!messages.length) {
-      await db.update(machineRuns).set({ status: "initializing", startedAt, provider: provider.name, model }).where(eq(machineRuns.id, run.id));
-      await db.update(machineTasks).set({ status: "initializing", startedAt }).where(eq(machineTasks.id, task.id));
+      obs("run.started", { runId: run.id, machineId: m.id });
+      await db.update(machineRuns).set({ status: "initializing", startedAt, provider: provider.name, model }).where(this.ownedWhere(run.id));
+      await db.update(machineTasks).set({ status: "initializing", startedAt }).where(and(eq(machineTasks.id, task.id), this.executionOwned(run.id)));
       await L("SYSTEM", `Run started · ${simulated ? "MOCK RUNTIME" : `${PROVIDERS[provider.name].label} / ${model}`}${run.depth ? ` · depth ${run.depth}` : ""}`);
       if (resolved.fallback) await L("WARNING", `${PROVIDERS[m.modelProvider as keyof typeof PROVIDERS]?.label ?? m.modelProvider} is not connected — executing on MOCK RUNTIME. Tools run in SIMULATED mode; no real external work will occur.`);
       else if (simulated) await L("SYSTEM", "Mock Runtime — tools run in SIMULATED mode.");
@@ -237,16 +287,17 @@ export class MachineRuntime {
         { role: "system", content: MachinePromptBuilder.buildSystemContext(m, tools, perms, MachinePromptBuilder.outputInstruction(schema ? "structured" : "text", fields, research)) },
         { role: "user", content: MachinePromptBuilder.buildTaskContext(task.input, MachinePromptBuilder.buildMemoryContext(mems)) },
       ];
-      await db.update(machineTasks).set({ status: "running" }).where(eq(machineTasks.id, task.id));
+      await db.update(machineTasks).set({ status: "running" }).where(and(eq(machineTasks.id, task.id), this.executionOwned(run.id)));
       await persist({ status: "running", memoryIds: mems.map((x) => x.id) });
     } else {
-      await db.update(machineRuns).set({ status: "running" }).where(eq(machineRuns.id, run.id));
-      await db.update(machineTasks).set({ status: "running" }).where(eq(machineTasks.id, task.id));
+      await db.update(machineRuns).set({ status: "running" }).where(this.ownedWhere(run.id));
+      await db.update(machineTasks).set({ status: "running" }).where(and(eq(machineTasks.id, task.id), this.executionOwned(run.id)));
       await db.update(machines).set({ status: m.status === "paused" ? "paused" : "running", currentTask: task.input.slice(0, 120) }).where(eq(machines.id, m.id));
     }
 
     // ---------- Usage accounting ----------
     const recordUsage = async (res: GenerateResponse) => {
+      await this.assertOwned(run.id);
       const c = provider.calculateEstimatedCost(model, res.usage);
       st.inT += res.usage.inputTokens; st.outT += res.usage.outputTokens; st.cT += res.usage.cachedTokens;
       if (c === null) st.pricingKnown = false; else st.aiCost += c;
@@ -264,9 +315,11 @@ export class MachineRuntime {
     const generate = async (req: Parameters<AIProvider["generate"]>[0]) => {
       if (!rateLimit(`provider:${m.workspaceId}`, LIMITS.providerPerWorkspace).ok) throw new Stop("failed", "RATE LIMITED — workspace provider request limit reached. Retry shortly.", "rate_limited");
       for (let attempt = 1; ; attempt++) {
+        await this.assertOwned(run.id);
         try {
           obs("provider.request", { runId: run.id, provider: provider.name, model, attempt });
           const res = await provider.generate({ ...req, signal: ctrl.signal, timeoutMs: Math.max(5_000, Math.min(90_000, remainingMs())) });
+          await this.assertOwned(run.id);
           if (!simulated) await reportProviderHealth(m.workspaceId, provider.name, true);
           return res;
         } catch (e) {
@@ -307,7 +360,9 @@ export class MachineRuntime {
       const [rel] = await db.insert(machineCallRelationships).values({ workspaceId: m.workspaceId, parentRunId: run.id, childRunId: cr.id, parentMachineId: m.id, childMachineId: tm.id, depth: run.depth + 1 }).returning();
       await L("MACHINE CALL", `→ ${tm.name} (${tm.machineCode}) · task #${ct.number}`);
       await this.activity("machines", `${tm.name} was called by ${m.name}.`);
-      const out = await child.execute(cr.id);
+      await this.assertOwned(run.id);
+      const out = await child.execute(cr.id, ctrl.signal);
+      await this.assertOwned(run.id);
       st.childCost += out.cost ?? 0;
       await db.update(machineCallRelationships).set({ status: out.status, cost: out.cost ?? 0 }).where(eq(machineCallRelationships.id, rel.id));
       await L("MACHINE RESULT", `← ${tm.name} · ${out.status.toUpperCase().replace("_", " ")} · ${usd(out.cost ?? 0)}`);
@@ -342,7 +397,7 @@ export class MachineRuntime {
         if (approval) {
           if (approval.status === "pending") {
             await persist({ status: "waiting_approval", pendingToolCall: { ...call, queue } as unknown as Run["pendingToolCall"] });
-            await db.update(machineTasks).set({ status: "waiting_approval" }).where(eq(machineTasks.id, task.id));
+            await db.update(machineTasks).set({ status: "waiting_approval" }).where(and(eq(machineTasks.id, task.id), this.executionOwned(run.id)));
             return { pause: approval.id };
           }
           if (!["approved", "denied"].includes(approval.status)) throw new Stop("failed", "APPROVAL NO LONGER VALID — the pending action was not executed.", "approval_invalid");
@@ -374,7 +429,7 @@ export class MachineRuntime {
       if (!override) await L("TOOL REQUEST", `${toolLabel.toUpperCase()} · ${te.summary}`, te.id);
       obs("tool.requested", { runId: run.id, tool: call.name });
       if (!entry) {
-        await db.update(toolExecutions).set({ status: "denied", permissionDecision: "DENY", error: "Tool not enabled for this Machine." }).where(eq(toolExecutions.id, te.id));
+        await db.update(toolExecutions).set({ status: "denied", permissionDecision: "DENY", error: "Tool not enabled for this Machine." }).where(and(eq(toolExecutions.id, te.id), this.executionOwned(run.id)));
         await L("PERMISSION", `DENIED · ${call.name} is not enabled for this Machine`, te.id);
         pushTool(call, { ok: false, error: { kind: "permission_denied", message: `Tool ${call.name} is not available to this Machine.` } });
         await persist();
@@ -382,7 +437,7 @@ export class MachineRuntime {
       }
       const errs = [...validate(entry.tool.inputSchema, call.args), ...(entry.tool.validateInput?.(call.args) ?? [])];
       if (errs.length) {
-        await db.update(toolExecutions).set({ status: "failed", error: errs.join("; ").slice(0, 500) }).where(eq(toolExecutions.id, te.id));
+        await db.update(toolExecutions).set({ status: "failed", error: errs.join("; ").slice(0, 500) }).where(and(eq(toolExecutions.id, te.id), this.executionOwned(run.id)));
         await L("TOOL ERROR", `Invalid input · ${errs[0]}`, te.id);
         pushTool(call, { ok: false, error: { kind: "invalid_input", message: errs.slice(0, 5).join("; ") } });
         await persist();
@@ -390,9 +445,9 @@ export class MachineRuntime {
       }
       const d = override ? { decision: override === "approved" ? "ALLOW" as const : "DENY" as const, permission: entry.tool.permission(call.args, { config: entry.config }), reason: override === "approved" ? "Approved by operator." : "Denied by operator.", risk: entry.tool.risk(call.args) }
         : evaluatePermission({ tool: entry.tool, args: call.args, config: entry.config, machinePerms: perms, workspaceDeny: ws?.policy?.denyPermissions ?? [], approvedForRun: st.approved });
-      await db.update(toolExecutions).set({ permission: d.permission, permissionDecision: d.decision, risk: d.risk }).where(eq(toolExecutions.id, te.id));
+      await db.update(toolExecutions).set({ permission: d.permission, permissionDecision: d.decision, risk: d.risk }).where(and(eq(toolExecutions.id, te.id), this.executionOwned(run.id)));
       if (d.decision === "DENY") {
-        await db.update(toolExecutions).set({ status: "denied", error: d.reason }).where(eq(toolExecutions.id, te.id));
+        await db.update(toolExecutions).set({ status: "denied", error: d.reason }).where(and(eq(toolExecutions.id, te.id), this.executionOwned(run.id)));
         await L("PERMISSION", `DENIED · ${d.reason}`, te.id);
         obs("tool.denied", { runId: run.id, tool: call.name, permission: d.permission });
         if (!override) await this.activity("security", `${m.name} attempted to use ${toolLabel}: permission denied.`, "warning");
@@ -409,9 +464,9 @@ export class MachineRuntime {
           purpose: redactString(call.name === "request_approval" ? String(call.args.question ?? "") : firstSentence(lastAssistant) || d.reason).slice(0, 500),
           payloadSummary: redactString(summarizePayload(call.name, call.args)).slice(0, 1500), arguments: redact(call.args, resolved.secrets),
         }).returning();
-        await db.update(toolExecutions).set({ status: "waiting_approval" }).where(eq(toolExecutions.id, te.id));
+        await db.update(toolExecutions).set({ status: "waiting_approval" }).where(and(eq(toolExecutions.id, te.id), this.executionOwned(run.id)));
         await persist({ status: "waiting_approval", pendingToolCall: { ...call, queue } as unknown as Run["pendingToolCall"] });
-        await db.update(machineTasks).set({ status: "waiting_approval" }).where(eq(machineTasks.id, task.id));
+        await db.update(machineTasks).set({ status: "waiting_approval" }).where(and(eq(machineTasks.id, task.id), this.executionOwned(run.id)));
         await db.update(machines).set({ currentTask: `Awaiting operator authorization · ${toolLabel}` }).where(eq(machines.id, m.id));
         await L("APPROVAL", `AUTHORIZATION REQUIRED · ${toolLabel} → ${ap.destination ?? "operator"} · risk ${d.risk.toUpperCase()}`, te.id);
         await this.activity("security", `${m.name} requested operator authorization: ${toolLabel}${ap.destination ? ` → ${ap.destination}` : ""}.`, "warning");
@@ -422,21 +477,24 @@ export class MachineRuntime {
       if (d.permission) await L("PERMISSION", `${d.permission} → ALLOW${override ? " (operator approved)" : ""}`, te.id);
       await checkCancel();
       const t0 = Date.now();
-      await db.update(toolExecutions).set({ status: "running", startedAt: new Date(), simulated: simulated && !!entry.tool.simulate }).where(eq(toolExecutions.id, te.id));
-      await db.update(machineRuns).set({ status: "waiting_tool" }).where(eq(machineRuns.id, run.id));
+      const [started] = await db.update(toolExecutions).set({ status: "running", startedAt: new Date(), simulated: simulated && !!entry.tool.simulate }).where(and(eq(toolExecutions.id, te.id), this.executionOwned(run.id))).returning({ id: toolExecutions.id });
+      if (!started) throw new RuntimeLeaseLostError();
+      await db.update(machineRuns).set({ status: "waiting_tool" }).where(this.ownedWhere(run.id));
       obs("tool.started", { runId: run.id, tool: call.name });
       const signal = AbortSignal.any([ctrl.signal, AbortSignal.timeout(call.name === "request_machine" ? Math.max(5_000, remainingMs()) : 25_000)]);
       const ctx: ToolContext = { workspaceId: m.workspaceId, machineId: m.id, machineName: m.name, runId: run.id, taskId: task.id, depth: run.depth, simulated, signal, config: entry.config, secrets: resolved.secrets, llmStructured, callMachine,
-        writeMemory: async (x) => { const r = await writeMemory({ machineId: m.id, workspaceId: m.workspaceId, ...x, source: `run:${run.id.slice(0, 8)}`, runId: run.id }); await L("MEMORY", `Stored memory · ${x.content.slice(0, 100)}`, te.id); obs("memory.write", { runId: run.id }); return r; } };
+        writeMemory: async (x) => { await this.assertOwned(run.id); const r = await writeMemory({ machineId: m.id, workspaceId: m.workspaceId, ...x, source: `run:${run.id.slice(0, 8)}`, runId: run.id }); await L("MEMORY", `Stored memory · ${x.content.slice(0, 100)}`, te.id); obs("memory.write", { runId: run.id }); return r; } };
       let result: ToolResult;
       try {
         if (call.name === "request_approval") result = override === "approved" ? { ok: true, data: { approved: true }, preview: "Operator approved" } : { ok: false, preview: "Operator denied", error: { kind: "permission_denied", message: "Operator denied the request." } };
         else result = simulated && entry.tool.simulate ? await entry.tool.simulate(call.args, ctx) : await entry.tool.execute(call.args, ctx);
       } catch (e) {
+        if (e instanceof RuntimeLeaseLostError || ctrl.signal.reason instanceof RuntimeLeaseLostError) throw ctrl.signal.reason instanceof RuntimeLeaseLostError ? ctrl.signal.reason : e;
         if (ctrl.signal.aborted) throw new Stop("cancelled", "RUN CANCELLED BY OPERATOR — the active tool call was aborted.", "cancelled");
-        obs("tool.crashed", { runId: run.id, tool: call.name, error: String(e) });
+        obs("tool.crashed", { runId: run.id, tool: call.name, error: errorSummary(e) });
         result = { ok: false, preview: "Tool failed", error: { kind: signal.aborted ? "timeout" : "unavailable", message: signal.aborted ? "Tool timed out." : "Tool failed unexpectedly." } };
       }
+      await this.assertOwned(run.id);
       // Provenance: only real (non-simulated) results become sources.
       const refs: { ref: string; url: string }[] = [];
       let data = result.data;
@@ -452,10 +510,11 @@ export class MachineRuntime {
         if (call.name === "fetch_page" && data && typeof data === "object") data = { ...(data as object), ref: refs[0]?.ref };
       }
       const toolCost = result.cost ?? 0; st.toolCost += toolCost;
+      await this.assertOwned(run.id);
       const outJson = redact(JSON.parse(JSON.stringify(data ?? null) ?? "null"), resolved.secrets);
       const outStr = JSON.stringify(outJson) ?? "null";
-      await db.update(toolExecutions).set({ status: result.ok ? "completed" : "failed", outputPayload: outStr.length > 40_000 ? { truncated: true, preview: outStr.slice(0, 40_000) } : (outJson as Record<string, unknown>), outputPreview: redactString(result.preview).slice(0, 500), error: result.error ? redactString(result.error.message).slice(0, 500) : null, simulated: !!result.simulated, completedAt: new Date(), durationMs: Date.now() - t0, estimatedCost: toolCost }).where(eq(toolExecutions.id, te.id));
-      await db.update(machineRuns).set({ status: "running" }).where(eq(machineRuns.id, run.id));
+      await db.update(toolExecutions).set({ status: result.ok ? "completed" : "failed", outputPayload: outStr.length > 40_000 ? { truncated: true, preview: outStr.slice(0, 40_000) } : (outJson as Record<string, unknown>), outputPreview: redactString(result.preview).slice(0, 500), error: result.error ? redactString(result.error.message).slice(0, 500) : null, simulated: !!result.simulated, completedAt: new Date(), durationMs: Date.now() - t0, estimatedCost: toolCost }).where(and(eq(toolExecutions.id, te.id), this.executionOwned(run.id)));
+      await db.update(machineRuns).set({ status: "running" }).where(this.ownedWhere(run.id));
       await L(result.ok ? "TOOL RESULT" : "TOOL ERROR", `${result.simulated ? "SIMULATED · " : ""}${result.ok ? result.preview : `${result.error?.kind?.toUpperCase()} · ${result.error?.message}`}`, te.id);
       obs(result.ok ? "tool.completed" : "tool.failed", { runId: run.id, tool: call.name, ms: Date.now() - t0, error: result.error?.kind });
       pushTool(call, result.ok ? { ok: true, simulated: !!result.simulated, data: outJson } : { ok: false, error: result.error });
@@ -540,8 +599,10 @@ export class MachineRuntime {
 
   private async complete(run: Run, task: typeof machineTasks.$inferSelect, result: TaskResult, x: { cost: number; tokens: number; durationMs: number; usedWeb: boolean }): Promise<RunOutcome> {
     const now = new Date();
+    await this.assertOwned(run.id);
+    const [done] = await db.update(machineRuns).set({ status: "completed", endedAt: now, pendingToolCall: null }).where(this.ownedWhere(run.id)).returning({ id: machineRuns.id });
+    if (!done) throw new RuntimeLeaseLostError();
     await db.update(machineTasks).set({ status: "completed", output: result.content, result, cost: x.cost, tokens: x.tokens, durationMs: x.durationMs, completedAt: now }).where(eq(machineTasks.id, task.id));
-    await db.update(machineRuns).set({ status: "completed", endedAt: now, pendingToolCall: null }).where(eq(machineRuns.id, run.id));
     await this.writeLog("OUTPUT", `Task completed · ${(x.durationMs / 1000).toFixed(1)}s · ${usd(x.cost)}${result.sources ? ` · ${result.sources.length} sources` : ""}`, run.id, task.id);
     await this.updateMachineMetrics({ success: true, cost: x.cost, durationMs: x.durationMs });
     if (task.source !== "machine") await this.activity("machines", `${this.machine.name} completed ${x.usedWeb ? "a research task" : `task #${task.number}`}.`, "success");
@@ -558,7 +619,9 @@ export class MachineRuntime {
     if (!cur || (TERMINAL as readonly string[]).includes(cur.status)) return { status: stop.status, error: stop.userMessage, cost: cur?.cost ?? 0 };
     const durationMs = cur.startedAt ? now.getTime() - cur.startedAt.getTime() : 0;
     const result: TaskResult = { status: stop.status, summary: stop.userMessage, content: "", structuredData: null, sources: null, artifacts: null, warnings: null };
-    await db.update(machineRuns).set({ status: stop.status, error: stop.userMessage, errorKind: stop.kind, endedAt: now, pendingToolCall: null }).where(eq(machineRuns.id, run.id));
+    await this.assertOwned(run.id);
+    const [done] = await db.update(machineRuns).set({ status: stop.status, error: stop.userMessage, errorKind: stop.kind, endedAt: now, pendingToolCall: null }).where(this.ownedWhere(run.id)).returning({ id: machineRuns.id });
+    if (!done) throw new RuntimeLeaseLostError();
     await db.update(machineTasks).set({ status: stop.status, output: stop.userMessage, result, cost: cur.cost, tokens: cur.tokens, durationMs, completedAt: now }).where(eq(machineTasks.id, cur.taskId));
     await db.update(approvalRequests).set({ status: "cancelled" }).where(and(eq(approvalRequests.machineRunId, run.id), eq(approvalRequests.status, "pending")));
     await db.update(toolExecutions).set({ status: "cancelled" }).where(and(eq(toolExecutions.machineRunId, run.id), inArray(toolExecutions.status, ["requested", "running", "waiting_approval"])));
@@ -581,11 +644,11 @@ export class MachineRuntime {
       if (!t || t.source === "arc" || t.source === "machine") return; // Arc nodes and delegated calls don't fire Machine event triggers
       const { emitEvent } = await import("@/lib/automation/triggers");
       await emitEvent({ workspaceId: this.machine.workspaceId, sourceType: "machine", sourceId: this.machine.id, status, output, depth: t.depth, name: this.machine.name });
-    } catch (e) { obs("event.emit_failed", { error: String(e) }); }
+    } catch (e) { obs("event.emit_failed", { error: errorSummary(e) }); }
   }
 
   private async notifyArc(runId: string) {
-    try { const { ArcRuntime } = await import("@/lib/arcs/runtime"); await ArcRuntime.onMachineRunFinished(runId); } catch (e) { obs("arc.notify_failed", { runId, error: String(e) }); }
+    try { const { ArcRuntime } = await import("@/lib/arcs/runtime"); await ArcRuntime.onMachineRunFinished(runId); } catch (e) { obs("arc.notify_failed", { runId, error: errorSummary(e) }); }
   }
 
   async updateMachineMetrics(r: { success: boolean; cost: number; durationMs: number; failStatus?: "failed" | "idle" }) {

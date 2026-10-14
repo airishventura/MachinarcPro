@@ -9,9 +9,11 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --conditions=react-server --test tests/auth-security.test.ts tests/recovery.test.ts tests/test-database.test.ts tests/worker-loop.test.ts tests/demo-retention.test.ts tests/chatgpt-local.test.ts",
-    "test:integration": "tsx --conditions=react-server --test --test-concurrency=1 tests/phase3.test.ts tests/phase4.test.ts tests/runtime-recovery.test.ts tests/auth-integration.test.ts tests/trigger-idempotency.test.ts tests/shared-rate-limit.test.ts tests/demo-cleanup.test.ts tests/economy.test.ts",
-    "worker": "tsx --conditions=react-server scripts/worker.ts"
+    "test": "tsx --conditions=react-server --test --test-concurrency=1 tests/auth-security.test.ts tests/recovery.test.ts tests/test-database.test.ts tests/worker-loop.test.ts tests/demo-retention.test.ts tests/chatgpt-local.test.ts tests/search-results.test.ts tests/cron-timezone.test.ts tests/botkeep-webhook.test.ts tests/service-config.test.ts tests/log-safety.test.ts",
+    "test:integration": "tsx --conditions=react-server --test --test-concurrency=1 tests/phase3.test.ts tests/phase4.test.ts tests/runtime-recovery.test.ts tests/auth-integration.test.ts tests/trigger-idempotency.test.ts tests/shared-rate-limit.test.ts tests/demo-cleanup.test.ts tests/economy.test.ts tests/botkeep-queue.test.ts tests/botkeep-runtime-locks.test.ts",
+    "worker": "tsx --conditions=react-server scripts/worker.ts",
+    "scheduler": "tsx --conditions=react-server scripts/scheduler.ts",
+    "integrations": "tsx --conditions=react-server scripts/integrations.ts"
   },
   "dependencies": {
     "@xyflow/react": "^12.12.0",

@@ -41,5 +41,6 @@ jobs:
         run: |
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f drizzle/0000_canonical_schema.sql
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f drizzle/0001_shared_rate_limits.sql
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f drizzle/0002_botkeep_runtime.sql
       - run: npm run test:integration
       - run: npm run build

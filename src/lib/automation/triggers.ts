@@ -94,8 +94,8 @@ export async function emitEvent(e: { workspaceId: string; sourceType: TargetType
   }
 }
 
-export function computeNextRun(s: { kind: string; intervalSec: number | null; cron: string | null }, from = new Date()) {
-  if (s.kind === "cron" && s.cron) return nextCron(s.cron, from);
+export function computeNextRun(s: { kind: string; intervalSec: number | null; cron: string | null; timezone?: string | null }, from = new Date()) {
+  if (s.kind === "cron" && s.cron) return nextCron(s.cron, from, s.timezone ?? "UTC");
   return new Date(from.getTime() + Math.max(60, s.intervalSec ?? 3600) * 1000);
 }
 
@@ -106,11 +106,11 @@ export async function tickSchedules(limit = 25, workspaceId?: string) {
   try {
     await client.query("begin");
     // Schema timestamps use UTC without a zone; pg otherwise interprets these in the host timezone.
-    const { rows } = await client.query(`select id, workspace_id, target_type, target_id, input, overlap, kind, interval_sec, cron, next_run_at at time zone 'UTC' as next_run_at from schedules where enabled and next_run_at <= now() and ($2::uuid is null or workspace_id = $2) order by next_run_at limit $1 for update skip locked`, [limit, workspaceId ?? null]);
+    const { rows } = await client.query(`select id, workspace_id, target_type, target_id, input, overlap, kind, interval_sec, cron, timezone, next_run_at at time zone 'UTC' as next_run_at from schedules where enabled and next_run_at <= (now() at time zone 'UTC') and ($2::uuid is null or workspace_id = $2) order by next_run_at limit $1 for update skip locked`, [limit, workspaceId ?? null]);
     for (const r of rows) {
       let next: Date | null;
-      try { next = computeNextRun({ kind: r.kind, intervalSec: r.interval_sec, cron: r.cron }); } catch { next = null; }
-      await client.query(`update schedules set next_run_at = $2, last_run_at = now(), enabled = $3 where id = $1`, [r.id, next?.toISOString() ?? null, !!next]);
+      try { next = computeNextRun({ kind: r.kind, intervalSec: r.interval_sec, cron: r.cron, timezone: r.timezone }); } catch { next = null; }
+      await client.query(`update schedules set next_run_at = $2, last_run_at = (now() at time zone 'UTC'), enabled = $3 where id = $1`, [r.id, next?.toISOString() ?? null, !!next]);
       await enqueueInTransaction(client, "trigger.fire", { source: "schedule", sourceId: r.id, targetType: r.target_type, targetId: r.target_id, input: r.input, overlap: r.overlap, depth: 0 }, { workspaceId: r.workspace_id, dedupeKey: `sched:${r.id}:${new Date(r.next_run_at).toISOString()}` });
       due.push(r);
     }

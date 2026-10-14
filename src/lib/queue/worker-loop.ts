@@ -3,6 +3,7 @@ export function startWorkerLoop(poll: (isStopped: () => boolean) => Promise<void
   let stopped = false, running = false, requested = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let immediate: ReturnType<typeof setImmediate> | null = null;
+  const idleWaiters = new Set<() => void>();
 
   function wake() {
     if (stopped) return;
@@ -19,6 +20,8 @@ export function startWorkerLoop(poll: (isStopped: () => boolean) => Promise<void
     catch (error) { onError(error); }
     finally {
       running = false;
+      for (const resolve of idleWaiters) resolve();
+      idleWaiters.clear();
       if (!stopped) {
         if (requested) wake();
         else timer = setTimeout(() => { timer = null; wake(); }, pollMs);
@@ -27,9 +30,13 @@ export function startWorkerLoop(poll: (isStopped: () => boolean) => Promise<void
   }
 
   wake();
-  return { wake, stop() {
+  function stop() {
     stopped = true;
     if (timer) clearTimeout(timer);
     if (immediate) clearImmediate(immediate);
+  }
+  return { wake, stop, async stopAndWait() {
+    stop();
+    if (running) await new Promise<void>(resolve => idleWaiters.add(resolve));
   } };
 }

@@ -1,10 +1,10 @@
 "use server";
-import { enqueue } from "@/lib/queue/queue";
+import { enqueue, notifyWorkers } from "@/lib/queue/queue";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
-import { activities, arcRuns, arcs } from "@/db/schema";
+import { activities, arcRuns, arcs, jobs } from "@/db/schema";
 import { requireSession } from "@/lib/auth";
 import { RuntimeError } from "@/lib/runtime/machine-runtime";
 import { ArcRuntime, loadArcGraph, workspaceMachines } from "@/lib/arcs/runtime";
@@ -89,8 +89,12 @@ export async function runArcAction(arcId: string, input: string, opts: { test?: 
   if (!text) return { ok: false, error: "Provide trigger input for this run." };
   if (text.length > 4000) return { ok: false, error: "Trigger input is limited to 4000 characters." };
   try {
-    const run = await ArcRuntime.createRun(arcId, s.workspace.id, text, { isTest: !!opts.test });
-    await enqueue("arc.drive", { runId: run.id }, { workspaceId: s.workspace.id });
+    const run = await db.transaction(async tx => {
+      const created = await ArcRuntime.createRun(arcId, s.workspace.id, text, { isTest: !!opts.test }, tx);
+      await tx.insert(jobs).values({ kind: "arc.drive", payload: { runId: created.id }, workspaceId: s.workspace.id, dedupeKey: `arc:${created.id}` });
+      return created;
+    });
+    notifyWorkers();
     revalidatePath(`/app/arcs/${arcId}`);
     return { ok: true, runId: run.id };
   } catch (e) { return fail("run", e, "The Arc Run could not be started."); }
