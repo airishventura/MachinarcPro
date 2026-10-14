@@ -36,9 +36,11 @@ The connected Supabase project runs `machinarc-worker-minute` through `pg_cron` 
 
 ## Real provider acceptance
 
-Real AI execution requires an OpenAI or Anthropic API key. Add it through Settings → Integrations in a registered workspace, then configure a Machine to use that provider and an available model. Demo workspaces always use Mock Runtime.
+Local development can also connect a ChatGPT plan through its official sign-in flow. See [CHATGPT_LOCAL.md](CHATGPT_LOCAL.md) for the separate database setup, `npm run dev:chatgpt`, and acceptance checks. This connection is disabled in production and on Vercel.
 
-Start with a short task and no external action tools. Inspect its run to confirm the requested provider, output, usage, and cost are recorded without a mock fallback. Then enable a calculator tool and verify its request and result appear in telemetry. Validate any action that requires approval separately before connecting destinations with real effects. No real-provider acceptance test has been completed yet.
+Hosted AI execution requires an OpenAI or Anthropic API key. Add it through Settings → Integrations in a registered workspace, then configure a Machine to use that provider and an available model. Demo workspaces always use Mock Runtime.
+
+Start with a short task and no external action tools. Inspect its run to confirm the requested provider, output, usage, and cost are recorded without a mock fallback. Then enable a calculator tool and verify its request and result appear in telemetry. Validate any action that requires approval separately before connecting destinations with real effects. Local ChatGPT calculation and memory approval/resume acceptance passed; see [CHATGPT_LOCAL.md](CHATGPT_LOCAL.md) for evidence and remaining checks. Hosted API-key provider acceptance remains pending.
 
 ## Network and accounting
 

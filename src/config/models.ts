@@ -1,7 +1,7 @@
 // Central model registry. The only place model IDs, capabilities and pricing live.
 // Pricing is USD per 1M tokens as configured by MachinArc; null = unknown (usage shown without cost).
 
-export type ProviderId = "openai" | "anthropic" | "mock";
+export type ProviderId = "openai" | "anthropic" | "mock" | "chatgpt";
 export type Capability = "tools" | "structured" | "vision" | "long_context" | "reasoning";
 export type ModelDef = {
   provider: ProviderId; id: string; name: string; capabilities: Capability[]; contextTokens: number;
@@ -13,6 +13,7 @@ export const PROVIDERS: Record<ProviderId, { label: string; envKey?: string; doc
   openai: { label: "OpenAI", envKey: "OPENAI_API_KEY", docs: "https://platform.openai.com/api-keys" },
   anthropic: { label: "Anthropic", envKey: "ANTHROPIC_API_KEY", docs: "https://console.anthropic.com/settings/keys" },
   mock: { label: "Mock Runtime" },
+  chatgpt: { label: "ChatGPT · local", docs: "https://developers.openai.com/siwc/token-sharing-open-source" },
 };
 
 export const MODELS: ModelDef[] = [

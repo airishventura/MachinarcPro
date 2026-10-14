@@ -1,6 +1,6 @@
 // Client-safe Machine draft model + defaults + validation (shared by builder UI and server).
 import { DEFAULT_PERMISSIONS, PERMISSIONS, TOOL_CATALOG, type OutputField, type PermissionKey, type PermissionMode } from "@/config/tools";
-import { MODELS } from "@/config/models";
+import { MODELS, type ModelDef } from "@/config/models";
 
 export type MachineDraft = {
   name: string; machineType: string; description: string; machineCode: string;
@@ -27,12 +27,12 @@ export function draftDefaults(p: Partial<MachineDraft> = {}): MachineDraft {
   };
 }
 
-export function validateDraft(d: MachineDraft): string | null {
+export function validateDraft(d: MachineDraft, models: ModelDef[] = MODELS): string | null {
   if (!d.name?.trim() || d.name.trim().length < 2) return "Machine name must be at least 2 characters.";
   if (d.name.length > 40) return "Machine name must be 40 characters or fewer.";
   if (!(BUILDER_TYPES as readonly string[]).includes(d.machineType)) return "Select a Machine type.";
   if (!d.objective?.trim() || d.objective.trim().length < 10) return "Objective must be at least 10 characters.";
-  if (!MODELS.some((m) => m.provider === d.modelProvider && m.id === d.modelName && m.enabled)) return "Select a model from the registry.";
+  if (!models.some((m) => m.provider === d.modelProvider && m.id === d.modelName && m.enabled)) return "Select a model from the registry.";
   if (!/^MARC-[A-Z]{3}-\d{4}$/.test(d.machineCode)) return "Invalid Machine ID.";
   if (!(d.dailyBudget >= 0) || !(d.monthlyBudget >= d.dailyBudget)) return "Monthly budget must be at least the daily budget.";
   if (!(d.maxTaskCost > 0) || d.maxTaskCost > d.dailyBudget && d.dailyBudget > 0) return "Max task cost must be greater than 0 and not exceed the daily budget.";

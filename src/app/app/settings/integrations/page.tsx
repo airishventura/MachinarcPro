@@ -7,11 +7,15 @@ import { ToolRegistry, type CustomApiConfig } from "@/lib/tools/registry";
 import { encryptionKeyConfigured } from "@/lib/security/crypto";
 import { ago } from "@/lib/domain";
 import { CustomApiBuilder, ProviderCard, RemoveIntegration, SearchCard, StatusBadge } from "@/components/settings/integrations-client";
+import { chatgptLocalStatus } from "@/lib/integrations/chatgpt-local";
+import { isDemoWorkspace } from "@/lib/integrations/service";
 
 export const dynamic = "force-dynamic";
 
-export default async function Integrations() {
+export default async function Integrations({ searchParams }: { searchParams: Promise<{ chatgpt?: string }> }) {
   const { workspace } = await requireSession();
+  const query = await searchParams;
+  const chatgpt = await isDemoWorkspace(workspace.id) ? null : await chatgptLocalStatus(workspace.id);
   const providers = await Promise.all((["openai", "anthropic"] as const).map(async (id) => {
     const [row, mode] = await Promise.all([getIntegration(workspace.id, id), providerConfigured(workspace.id, id)]);
     const hint = row ? await secretHint(workspace.id, row.id) : null;
@@ -21,7 +25,7 @@ export default async function Integrations() {
   const search = await getIntegration(workspace.id, "web_search");
   const searchHasKey = search ? !!(await secretHint(workspace.id, search.id)) : false;
   const apis = await ToolRegistry.customApis(workspace.id);
-  const anyProvider = providers.some((p) => p.mode);
+  const anyProvider = providers.some((p) => p.mode) || chatgpt?.connected;
 
   return (
     <div className="space-y-8">
@@ -30,6 +34,22 @@ export default async function Integrations() {
       {!encryptionKeyConfigured() && <p className="font-mono text-[11px] text-dim">DEV NOTICE · MARC_ENCRYPTION_KEY is not set; credentials use a development-derived key. Set a 32+ character key in production.</p>}
 
       <section aria-labelledby="ai"><h2 id="ai" className="t-section mb-3">AI PROVIDERS</h2>
+        {chatgpt && <div className="mb-3 space-y-3 border border-line bg-bg3 p-4">
+          <div className="flex items-center justify-between"><h3 className="font-mono tracking-wider">CHATGPT · LOCAL ONLY</h3><StatusBadge s={chatgpt.connected ? "connected" : "not_connected"} /></div>
+          <p className="t-secondary">Connect your ChatGPT plan for this local workspace&apos;s Machines. Use a personal workspace with one owner/member. Tokens stay encrypted on this computer. Open the app at http://127.0.0.1 to sign in.</p>
+          {chatgpt.account && <p className="t-caption">Selected account: {chatgpt.account}</p>}
+          <p className="t-caption">Plan limits and configured credits apply. API prices do not describe ChatGPT plan charges. <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noreferrer" className="underline">Manage usage in ChatGPT</a></p>
+          {query.chatgpt === "failed" && <p role="alert" className="text-warn">Sign-in did not complete. The existing connection was preserved. Retry and grant ChatGPT plan permission.</p>}
+          {query.chatgpt === "connected" && <p role="status" className="text-ok">ChatGPT connected. Create a Machine using a model from your account catalog.</p>}
+          {query.chatgpt === "disconnected" && <p role="status">ChatGPT disconnected.</p>}
+          {query.chatgpt === "revocation_unconfirmed" && <p role="alert" className="text-warn">Disconnected locally. Remote revocation was not confirmed; disconnect MachinArc in ChatGPT Settings.</p>}
+          <form action="/api/local-chatgpt" method="post" className="flex flex-wrap gap-2">
+            {!!chatgpt.accounts.length && <label className="flex items-center gap-2">ChatGPT account<select name="account" defaultValue={chatgpt.selected} className="input">{chatgpt.accounts.map(a => <option value={a.clientId} key={a.clientId}>{a.label}</option>)}</select></label>}
+            <button name="action" value="connect" className="btn btn-primary">Continue with ChatGPT</button>
+            {chatgpt.account && <button name="action" value="different" className="btn">Use a different ChatGPT account</button>}
+            {chatgpt.connected && <button name="action" value="disconnect" className="btn">Disconnect ChatGPT</button>}
+          </form>
+        </div>}
         <div className="grid gap-px border border-line bg-line md:grid-cols-3">
           {providers.map((p) => <ProviderCard key={p.id} {...p} />)}
           <div className="flex flex-col bg-bg3 p-4"><div className="flex items-start justify-between"><div><div className="font-mono tracking-wider">MOCK RUNTIME</div><div className="t-caption mt-0.5">SIMULATED · NO CREDENTIALS</div></div><StatusBadge s="builtin" /></div><p className="t-secondary mt-3">Deterministic scripted model with simulated tools. Used automatically when a Machine&apos;s provider is not connected. Never performs real external work.</p></div>

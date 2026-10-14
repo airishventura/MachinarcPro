@@ -5,7 +5,7 @@ import Link from "next/link";
 import { deployMachineAction, retryDeployAction } from "@/app/actions";
 import { TYPE_LABEL, machineCode } from "@/lib/domain";
 import { BUILDER_TYPES, draftDefaults, type MachineDraft } from "@/lib/machines/drafts";
-import { CAPABILITY_LABEL, MODELS, PROVIDERS, type ProviderId } from "@/config/models";
+import { CAPABILITY_LABEL, MODELS, PROVIDERS, type ProviderId, type ModelDef } from "@/config/models";
 import { MEMORY_MODES, PERMISSIONS, TOOL_CATALOG, type OutputField, type PermissionMode } from "@/config/tools";
 import type { MachineStateDTO } from "@/types/machine";
 import { Glyph } from "@/components/ui";
@@ -16,15 +16,15 @@ const STAGES = [
 ];
 const INIT_STEPS = ["Generating identity", "Loading intelligence", "Applying permissions", "Initializing runtime", "Registering Machine"];
 const CATS = ["RESEARCH", "DATA", "DEVELOPER", "MACHINARC"] as const;
-export type Availability = { openai: string | null; anthropic: string | null; mock: string; customApis: { slug: string; name: string; actions: number; status: string }[] };
+export type Availability = { openai: string | null; anthropic: string | null; mock: string; chatgpt?: string | null; customApis: { slug: string; name: string; actions: number; status: string }[] };
 
-export function MachineBuilder({ initial, available }: { initial?: Partial<MachineDraft>; available: Availability }) {
+export function MachineBuilder({ initial, available, models = MODELS }: { initial?: Partial<MachineDraft>; available: Availability; models?: ModelDef[] }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [err, setErr] = useState("");
-  const firstReal = available.openai ? "openai" : available.anthropic ? "anthropic" : "mock";
+  const firstReal = available.chatgpt ? "chatgpt" : available.openai ? "openai" : available.anthropic ? "anthropic" : "mock";
   const [d, setD] = useState<MachineDraft>(() => {
-    const base = draftDefaults({ modelProvider: firstReal, modelName: MODELS.find((m) => m.provider === firstReal)!.id, ...initial });
+    const base = draftDefaults({ modelProvider: firstReal, modelName: models.find((m) => m.provider === firstReal)!.id, ...initial });
     return { ...base, tools: [...base.tools, ...available.customApis.filter((a) => !base.tools.some((t) => t.id === `api__${a.slug}`)).map((a) => ({ id: `api__${a.slug}`, enabled: false }))] };
   });
   const [deploy, setDeploy] = useState<null | { id?: string; done: number; status: "submitting" | "initializing" | "online" | "failed" }>(null);
@@ -34,8 +34,8 @@ export function MachineBuilder({ initial, available }: { initial?: Partial<Machi
   const up = <K extends keyof MachineDraft>(k: K, v: MachineDraft[K]) => setD((p) => ({ ...p, [k]: v }));
   const tool = (id: string) => d.tools.find((t) => t.id === id);
   const setTool = (id: string, patch: Partial<MachineDraft["tools"][number]>) => setD((p) => ({ ...p, tools: p.tools.map((t) => (t.id === id ? { ...t, ...patch } : t)) }));
-  const model = MODELS.find((m) => m.provider === d.modelProvider && m.id === d.modelName);
-  const connected = (p: string) => p === "mock" || !!available[p as "openai" | "anthropic"];
+  const model = models.find((m) => m.provider === d.modelProvider && m.id === d.modelName);
+  const connected = (p: string) => p === "mock" || !!available[p as "openai" | "anthropic" | "chatgpt"];
 
   const validate = (s: number) => {
     if (s === 0 && d.name.trim().length < 2) return "Name your Machine (at least 2 characters).";
@@ -117,17 +117,17 @@ export function MachineBuilder({ initial, available }: { initial?: Partial<Machi
           </>}
           {step === 2 && <>
             <fieldset><legend className="label mb-1.5">Provider</legend>
-              <div className="grid gap-2 sm:grid-cols-3">{(Object.keys(PROVIDERS) as ProviderId[]).map((k) => (
-                <Choice key={k} on={d.modelProvider === k} onClick={() => setD((x) => ({ ...x, modelProvider: k, modelName: MODELS.find((m) => m.provider === k)!.id }))}>
+              <div className="grid gap-2 sm:grid-cols-3">{(Object.keys(PROVIDERS) as ProviderId[]).filter(k => k !== "chatgpt" || models.some(m => m.provider === k)).map((k) => (
+                <Choice key={k} on={d.modelProvider === k} onClick={() => setD((x) => ({ ...x, modelProvider: k, modelName: models.find((m) => m.provider === k)!.id }))}>
                   <span className="block">{PROVIDERS[k].label}</span><span className={`block text-[10px] ${connected(k) ? "text-ok" : "text-dim"}`}>{k === "mock" ? "SIMULATED · ALWAYS AVAILABLE" : connected(k) ? `CONNECTED · ${String(available[k as "openai"]).toUpperCase()}` : "NOT CONNECTED"}</span>
                 </Choice>))}</div></fieldset>
             {!connected(d.modelProvider) && <p className="border-l-2 border-warn pl-3 text-sm text-mute">{PROVIDERS[d.modelProvider as ProviderId].label} is not connected. Runs will fall back to <span className="text-fg">Mock Runtime</span> (simulated tools) until you <Link href="/app/settings/integrations" className="underline">connect a provider</Link>.</p>}
             <fieldset><legend className="label mb-1.5">Model</legend>
-              <div className="grid gap-px border border-line bg-line">{MODELS.filter((m) => m.provider === d.modelProvider && m.enabled).map((m) => (
+              <div className="grid gap-px border border-line bg-line">{models.filter((m) => m.provider === d.modelProvider && m.enabled).map((m) => (
                 <button type="button" key={m.id} onClick={() => up("modelName", m.id)} aria-pressed={d.modelName === m.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-left ${d.modelName === m.id ? "bg-panel2" : "bg-bg3 hover:bg-panel"}`}>
-                  <span className={`h-2 w-2 border ${d.modelName === m.id ? "border-amber bg-amber" : "border-dim"}`} aria-hidden /><span className="font-mono text-sm">{m.name}</span><span className="t-caption">{m.speed.toUpperCase()} · {(m.contextTokens / 1000).toFixed(0)}K CTX</span>
+                  <span className={`h-2 w-2 border ${d.modelName === m.id ? "border-amber bg-amber" : "border-dim"}`} aria-hidden /><span className="font-mono text-sm">{m.name}</span><span className="t-caption">{m.provider === "chatgpt" ? "CHATGPT ACCOUNT CATALOG" : `${m.speed.toUpperCase()} · ${(m.contextTokens / 1000).toFixed(0)}K CTX`}</span>
                   <span className="ml-auto flex flex-wrap gap-1">{m.capabilities.map((c) => <span key={c} className="border border-line px-1 font-mono text-[9px] text-mute">{CAPABILITY_LABEL[c]}</span>)}</span>
-                  <span className="w-full font-mono text-[10px] text-dim">{m.inputPer1M !== null ? `$${m.inputPer1M} in / $${m.outputPer1M} out per 1M tokens${m.provider === "mock" ? " · simulated" : ""}` : "pricing not configured"}</span>
+                  <span className="w-full font-mono text-[10px] text-dim">{m.provider === "chatgpt" ? "Uses your ChatGPT plan allowance and configured credits; review limits in ChatGPT Settings → Usage." : m.inputPer1M !== null ? `$${m.inputPer1M} in / $${m.outputPer1M} out per 1M tokens${m.provider === "mock" ? " · simulated" : ""}` : "pricing not configured"}</span>
                 </button>))}</div></fieldset>
             <F label="System Instructions" id="sys"><textarea id="sys" rows={4} className="input font-mono text-xs" value={d.systemPrompt} onChange={(e) => up("systemPrompt", e.target.value)} placeholder="Operator instructions. Platform safety rules always take precedence." /></F>
             {model?.reasoningEffort && <F label="Reasoning effort" id="eff"><div className="grid grid-cols-3 gap-2" id="eff">{(["low", "medium", "high"] as const).map((r) => <Choice key={r} on={d.reasoning === r} onClick={() => up("reasoning", r)}>{r.toUpperCase()}<span className="block text-[10px] text-dim">{r === "low" ? "faster, cheaper" : r === "medium" ? "balanced" : "most thorough"}</span></Choice>)}</div></F>}
