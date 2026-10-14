@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { ArcDemo, NetworkField } from "@/components/landing-viz";
-import { Parallax, Reveal, ScrambleText, ScrollProgress, ScrollTextReveal, StickySteps, TypeTerminal } from "@/components/landing/motion";
+import { ArcDemo } from "@/components/landing-viz";
+import { HeroGrid } from "@/components/landing/hero-grid";
+import { Reveal, ScrambleText, ScrollProgress, ScrollTextReveal, StickySteps, TypeTerminal } from "@/components/landing/motion";
 import { CapabilityGrid, EventTicker, LandingStats, NetworkCards } from "@/components/landing/sections";
 import { Logo } from "@/components/ui";
 import { getSession } from "@/lib/auth";
@@ -46,8 +47,7 @@ export default async function Landing() {
       </header>
 
       <section className="relative overflow-hidden border-b border-line">
-        <div className="grid-bg absolute inset-0 opacity-60" />
-        <Parallax speed={0.18} className="absolute inset-y-0 right-0 w-full opacity-50 md:w-3/5 md:opacity-100"><NetworkField /></Parallax>
+        <HeroGrid />
         <div className="absolute inset-0 bg-gradient-to-r from-bg via-bg/80 to-transparent" />
         <div className="relative mx-auto max-w-7xl px-5 py-24 md:py-36">
           <div className="label fade-up flex items-center gap-2"><span className="dot-live h-1.5 w-1.5 rounded-full bg-ok text-ok" /><ScrambleText text="MACHINARC · NETWORK OPERATIONAL" /></div>
