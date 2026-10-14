@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { activities, machinePermissions, machines, users, workspaceMembers, workspaces } from "@/db/schema";
 import { enqueue } from "@/lib/queue/queue";
+import { enqueueMachineRun } from "@/lib/machines/run-service";
 import { provisionVisitorDemo } from "@/lib/seed/demo";
 import { createSession, destroySession, hashPassword, requireSession, verifyPassword } from "@/lib/auth";
 import { createMachine, initWorkspace, validateDraft, type MachineDraft } from "@/lib/machines/service";
@@ -113,10 +114,7 @@ export async function runTaskAction(machineId: string, input: string): Promise<{
   if (text.length < 3) return { error: "Describe the task (at least 3 characters)." };
   if (text.length > 4000) return { error: "Task is too long (4000 characters max)." };
   try {
-    const rt = await MachineRuntime.load(machineId, s.workspace.id);
-    const { task, run } = await rt.createRun(text);
-    await enqueue("machine.execute", { runId: run.id }, { workspaceId: s.workspace.id, dedupeKey: `machine:${run.id}` });
-    void task;
+    const { task } = await enqueueMachineRun(machineId, s.workspace.id, text);
     return { taskId: task.id };
   } catch (e) { return fail("runTask", e, "Task could not be queued. Please retry."); }
 }

@@ -9,6 +9,19 @@ function deferred() {
   return { promise, resolve };
 }
 
+test("graceful shutdown waits for a pending poll before returning", async () => {
+  const started = deferred(), release = deferred();
+  const worker = startWorkerLoop(async () => { started.resolve(); await release.promise; }, 60_000, error => { throw error; });
+  await started.promise;
+  let drained = false;
+  const shutdown = worker.stopAndWait().then(() => { drained = true; });
+  await nextTurn();
+  assert.equal(drained, false);
+  release.resolve();
+  await shutdown;
+  assert.equal(drained, true);
+});
+
 test("wakeups during a pending claim cannot exceed worker concurrency", { timeout: 5000 }, async () => {
   const started = deferred(), releaseClaim = deferred(), repolled = deferred();
   const concurrency = 2;

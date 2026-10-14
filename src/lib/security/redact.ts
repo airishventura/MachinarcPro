@@ -1,3 +1,5 @@
+import { getJobContext } from "@/lib/runtime/job-context";
+
 // Centralized secret redaction for logs, tool payloads and telemetry.
 const SENSITIVE_KEY = /^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api[-_]?key|apikey|access[-_]?token|refresh[-_]?token|token|secret|client[-_]?secret|password|passwd|pwd|private[-_]?key|session)$/i;
 const PATTERNS: RegExp[] = [
@@ -18,6 +20,13 @@ export function redactString(s: string, extraSecrets: string[] = []): string {
   return out;
 }
 
+/** Database errors may contain SQL parameter payloads; never put those into service logs. */
+export function errorSummary(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/^Failed query:|(?:^|\n)params:/i.test(message)) return "Database operation failed.";
+  return redactString(message).slice(0, 1000);
+}
+
 export function redact<T>(v: T, extraSecrets: string[] = [], depth = 0): T {
   if (depth > 8) return "[TRUNCATED]" as unknown as T;
   if (typeof v === "string") return redactString(v, extraSecrets) as unknown as T;
@@ -33,5 +42,7 @@ export function redact<T>(v: T, extraSecrets: string[] = [], depth = 0): T {
 /** Structured internal observability log. Always redacted. */
 export function obs(event: string, fields: Record<string, unknown> = {}) {
   if (process.env.MARC_OBS === "off") return;
-  try { console.log(JSON.stringify({ t: new Date().toISOString(), event, ...redact(fields) })); } catch { /* never throw from logging */ }
+  const context = getJobContext();
+  const execution = context ? { jobId: context.jobId, workerId: context.workerId, attempt: context.attempt, runId: context.runId, machineId: context.machineId } : {};
+  try { console.log(JSON.stringify({ t: new Date().toISOString(), event, ...execution, ...redact(fields) })); } catch { /* never throw from logging */ }
 }

@@ -6,6 +6,7 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   if (process.env.VERCEL) return; // Hosted jobs run through authenticated, bounded worker requests.
+  if (process.env.MACHINARC_EXECUTION_MODE === "botkeep") return;
   if (process.env.MARC_WORKER === "off" || process.env.NEXT_PHASE === "phase-production-build") return;
   const { startWorker } = await import("@/lib/queue/worker");
   startWorker({ mode: "in-process" });

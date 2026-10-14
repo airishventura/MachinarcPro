@@ -15,6 +15,8 @@ export async function POST(request: Request) {
   if (!secret || supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
+  // During Botkeep cutover, old cron deliveries remain authenticated but cannot execute runs on Vercel.
+  if (process.env.MACHINARC_EXECUTION_MODE === "botkeep") return Response.json({ ok: true, mode: "botkeep", claimed: 0 });
   try {
     const scheduled = await tickSchedules();
     const recovered = await recoverOrphans();

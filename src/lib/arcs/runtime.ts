@@ -1,9 +1,13 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { getJobContext } from "@/lib/runtime/job-context";
+import { errorSummary, obs } from "@/lib/security/redact";
 import { enqueue } from "@/lib/queue/queue";
 import { and, asc, eq, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { activities, arcApprovals, arcEdges, arcNodes, arcRunEvents, arcRunNodes, arcRuns, arcs, machineRuns, machineTasks, machines } from "@/db/schema";
-import { MachineRuntime, RuntimeError } from "@/lib/runtime/machine-runtime";
+import { MachineRuntime, RuntimeError, RuntimeLeaseLostError } from "@/lib/runtime/machine-runtime";
 import { HANDLE_LABEL, MAX_DELAY_SECONDS, OPERATORS, delaySeconds, evaluateCondition, interpolate, refName, resolveRef, validateArc, type ArcNodeType, type Graph, type GraphEdge, type GraphNode, type MachineRef, type NodeConfig, type RefContext } from "@/lib/arcs/graph";
 
 type Run = typeof arcRuns.$inferSelect;
@@ -11,6 +15,7 @@ type RunNode = typeof arcRunNodes.$inferSelect;
 const TERMINAL = ["completed", "failed", "cancelled"] as const;
 const RESOLVED = ["completed", "failed", "skipped"];
 const LOCK_MS = 120_000;
+const driverContext = new AsyncLocalStorage<{ runId: string; owner: string; controller: AbortController }>();
 
 export const runCode = (n: number) => `RUN-${String(n).padStart(5, "0")}`;
 export const isTerminal = (s: string) => (TERMINAL as readonly string[]).includes(s);
@@ -44,6 +49,23 @@ function edgeActive(e: GraphEdge, p: RunNode) {
  * moved to a queue worker without changes.
  */
 export class ArcRuntime {
+  private static ownedWhere(runId: string) {
+    const driver = driverContext.getStore();
+    return and(eq(arcRuns.id, runId), driver?.runId === runId ? and(eq(arcRuns.lockOwner, driver.owner), sql`${arcRuns.lockUntil} > (now() at time zone 'UTC')`) : undefined);
+  }
+
+  private static async assertOwned(runId: string) {
+    const driver = driverContext.getStore();
+    if (driver?.runId !== runId) return;
+    if (driver.controller.signal.aborted || getJobContext()?.signal.aborted) throw new RuntimeLeaseLostError();
+    const [owned] = await db.select({ id: arcRuns.id }).from(arcRuns).where(and(this.ownedWhere(runId), notInArray(arcRuns.status, [...TERMINAL])));
+    if (!owned) { driver.controller.abort(new RuntimeLeaseLostError()); throw new RuntimeLeaseLostError(); }
+  }
+
+  private static nodeOwner(runId: string) {
+    const driver = driverContext.getStore();
+    return driver?.runId === runId ? sql`exists (select 1 from arc_runs where id = ${runId} and lock_owner = ${driver.owner} and lock_until > (now() at time zone 'UTC') and status not in ('completed','failed','cancelled'))` : undefined;
+  }
   // ---------- Run lifecycle ----------
   static async createRun(arcId: string, workspaceId: string, input: string, opts: { isTest: boolean; source?: string; triggerDepth?: number }, writer: RunWriter = db) {
     const [arc] = await writer.select().from(arcs).where(and(eq(arcs.id, arcId), eq(arcs.workspaceId, workspaceId), isNull(arcs.deletedAt)));
@@ -75,27 +97,49 @@ export class ArcRuntime {
   /** Advances a run as far as possible. Safe to call concurrently — only one driver holds the lock. */
   static async drive(runId: string, depth = 0): Promise<void> {
     if (depth > 6) return;
-    const [locked] = await db.update(arcRuns).set({ lockUntil: new Date(Date.now() + LOCK_MS) })
+    const owner = randomUUID();
+    const [locked] = await db.update(arcRuns).set({ lockUntil: new Date(Date.now() + LOCK_MS), lockOwner: owner })
       .where(and(eq(arcRuns.id, runId), or(isNull(arcRuns.lockUntil), lt(arcRuns.lockUntil, new Date())), notInArray(arcRuns.status, [...TERMINAL]))).returning();
     if (!locked) return;
+    const controller = new AbortController();
+    const jobSignal = getJobContext()?.signal;
+    const abort = () => controller.abort(new RuntimeLeaseLostError());
+    if (jobSignal?.aborted) abort();
+    else jobSignal?.addEventListener("abort", abort, { once: true });
+    let renewing = false;
+    const heartbeat = setInterval(() => {
+      if (renewing) return;
+      renewing = true;
+      void db.update(arcRuns).set({ lockUntil: new Date(Date.now() + LOCK_MS) })
+        .where(and(eq(arcRuns.id, runId), eq(arcRuns.lockOwner, owner), sql`${arcRuns.lockUntil} > (now() at time zone 'UTC')`, notInArray(arcRuns.status, [...TERMINAL])))
+        .returning({ id: arcRuns.id }).then(rows => { if (!rows.length) abort(); }).catch(abort).finally(() => { renewing = false; });
+    }, 30_000);
     try {
-      await this.loop(locked);
+      await driverContext.run({ runId, owner, controller }, () => this.loop(locked));
     } catch (e) {
-      console.error("[arc.drive]", e);
-      await this.failRun(runId, null, "The Arc runtime encountered an unexpected error.");
+      if (e instanceof RuntimeLeaseLostError || controller.signal.aborted) throw new RuntimeLeaseLostError();
+      obs("arc.drive_failed", { runId, error: errorSummary(e) });
+      await driverContext.run({ runId, owner, controller }, async () => {
+        await this.assertOwned(runId);
+        await this.failRun(runId, null, "The Arc runtime encountered an unexpected error.");
+      });
     } finally {
-      await db.update(arcRuns).set({ lockUntil: null }).where(eq(arcRuns.id, runId));
+      clearInterval(heartbeat);
+      jobSignal?.removeEventListener("abort", abort);
+      await db.update(arcRuns).set({ lockUntil: null, lockOwner: null }).where(and(eq(arcRuns.id, runId), eq(arcRuns.lockOwner, owner)));
     }
     if (await this.hasWork(runId)) await this.drive(runId, depth + 1);
   }
 
   private static async loop(run: Run) {
+    await this.assertOwned(run.id);
     const graph = run.graphSnapshot as unknown as Graph;
-    if (run.status === "queued" || run.status.startsWith("waiting")) await db.update(arcRuns).set({ status: "running" }).where(eq(arcRuns.id, run.id));
+    if (run.status === "queued" || run.status.startsWith("waiting")) await db.update(arcRuns).set({ status: "running" }).where(and(this.ownedWhere(run.id), notInArray(arcRuns.status, [...TERMINAL])));
+    await this.recoverInterruptedNodes(run, graph);
     for (let i = 0; i < 500; i++) {
-      await db.update(arcRuns).set({ lockUntil: new Date(Date.now() + LOCK_MS) }).where(eq(arcRuns.id, run.id));
       const [cur] = await db.select().from(arcRuns).where(eq(arcRuns.id, run.id));
       if (!cur || isTerminal(cur.status)) return;
+      await this.assertOwned(run.id);
       let rns = await this.runNodes(run.id);
       const due = rns.filter((r) => r.status === "waiting" && r.nodeType === "delay" && r.resumeAt && r.resumeAt <= new Date());
       for (const d of due) {
@@ -106,15 +150,50 @@ export class ArcRuntime {
       const { toRun, toSkip } = this.resolveNextNodes(graph, rns);
       if (!toRun.length && !toSkip.length) break;
       for (const n of toSkip) {
-        await db.update(arcRunNodes).set({ status: "skipped" }).where(and(eq(arcRunNodes.arcRunId, run.id), eq(arcRunNodes.nodeKey, n.key)));
+        await db.update(arcRunNodes).set({ status: "skipped" }).where(and(eq(arcRunNodes.arcRunId, run.id), eq(arcRunNodes.nodeKey, n.key), this.nodeOwner(run.id)));
         await this.event(run.id, n.key, "skip", `${n.label} SKIPPED — branch not taken`);
       }
       if (toRun.length) {
-        if (cur.status !== "running") await db.update(arcRuns).set({ status: "running" }).where(eq(arcRuns.id, run.id));
+        if (cur.status !== "running") await db.update(arcRuns).set({ status: "running" }).where(and(this.ownedWhere(run.id), notInArray(arcRuns.status, [...TERMINAL])));
         await Promise.all(toRun.map((n) => this.executeNode(cur, graph, n, rns)));
       }
     }
     await this.finalize(run.id);
+  }
+
+  /** Resume persisted children; never recreate a child whose external outcome is unknown. */
+  private static async recoverInterruptedNodes(run: Run, graph: Graph) {
+    for (const rn of await this.runNodes(run.id)) {
+      if (rn.status !== "running" && !(rn.status === "waiting" && rn.nodeType === "machine")) continue;
+      await this.assertOwned(run.id);
+      const node = graph.nodes.find(n => n.key === rn.nodeKey);
+      if (!node) { await this.failRun(run.id, rn.nodeKey, "Interrupted node is missing from the persisted graph."); return; }
+      const where = and(eq(arcRunNodes.id, rn.id), this.nodeOwner(run.id));
+      if (rn.nodeType === "machine") {
+        const [child] = rn.machineRunId ? await db.select({ id: machineRuns.id, status: machineRuns.status }).from(machineRuns)
+          .innerJoin(machines, eq(machines.id, machineRuns.machineId))
+          .where(and(eq(machineRuns.id, rn.machineRunId), eq(machines.workspaceId, run.workspaceId))) : [];
+        if (!child) {
+          await this.failRun(run.id, rn.nodeKey, "MACHINE EXECUTION INTERRUPTED — no durable child run is linked. Review the interrupted action before starting another run.");
+          return;
+        }
+        await db.update(arcRunNodes).set({ status: "waiting" }).where(where);
+        if (["completed", "failed", "cancelled", "budget_exceeded", "timeout"].includes(child.status)) {
+          await this.onMachineRunFinished(child.id);
+          const [current] = await db.select({ status: arcRuns.status }).from(arcRuns).where(eq(arcRuns.id, run.id));
+          if (!current || isTerminal(current.status)) return;
+        } else if (child.status !== "waiting_approval") {
+          await enqueue("machine.execute", { runId: child.id }, { workspaceId: run.workspaceId, dedupeKey: `machine:${child.id}` });
+        }
+      } else if (["trigger", "decision", "output", "delay"].includes(rn.nodeType)) {
+        // These nodes compute or persist local state; no external tool action can have occurred.
+        await db.update(arcRunNodes).set({ status: "pending" }).where(where);
+      } else {
+        const [approval] = await db.select({ id: arcApprovals.id }).from(arcApprovals).where(and(eq(arcApprovals.arcRunId, run.id), eq(arcApprovals.nodeKey, rn.nodeKey), eq(arcApprovals.status, "pending")));
+        if (approval) await db.update(arcRunNodes).set({ status: "waiting" }).where(where);
+        else { await this.failRun(run.id, rn.nodeKey, "REVIEW NODE INTERRUPTED — review its persisted approval state before starting another run."); return; }
+      }
+    }
   }
 
   /** Nodes whose parents are all resolved: run if any incoming edge is active, otherwise skip. */
@@ -151,8 +230,9 @@ export class ArcRuntime {
 
   // ---------- Node execution ----------
   static async executeNode(run: Run, graph: Graph, node: GraphNode, rns: RunNode[]) {
+    await this.assertOwned(run.id);
     const t0 = Date.now();
-    await db.update(arcRunNodes).set({ status: "running", startedAt: new Date() }).where(and(eq(arcRunNodes.arcRunId, run.id), eq(arcRunNodes.nodeKey, node.key)));
+    await db.update(arcRunNodes).set({ status: "running", startedAt: new Date() }).where(and(eq(arcRunNodes.arcRunId, run.id), eq(arcRunNodes.nodeKey, node.key), this.nodeOwner(run.id)));
     if (node.type === "machine" || node.type === "output") await this.event(run.id, node.key, "start", `${node.label} STARTED`);
     try {
       switch (node.type) {
@@ -166,7 +246,7 @@ export class ArcRuntime {
         case "human_review": return await this.pauseForApproval(run, graph, node, rns);
         case "delay": {
           const secs = Math.min(MAX_DELAY_SECONDS, delaySeconds(node.config));
-          await db.update(arcRunNodes).set({ status: "waiting", resumeAt: new Date(Date.now() + secs * 1000) }).where(and(eq(arcRunNodes.arcRunId, run.id), eq(arcRunNodes.nodeKey, node.key)));
+          await db.update(arcRunNodes).set({ status: "waiting", resumeAt: new Date(Date.now() + secs * 1000) }).where(and(eq(arcRunNodes.arcRunId, run.id), eq(arcRunNodes.nodeKey, node.key), this.nodeOwner(run.id)));
           await this.event(run.id, node.key, "wait", `${node.label} WAITING ${secs}s`);
           // In-process wake-up for short delays; polling clients and future workers also resume via needsDrive().
           await enqueue("arc.drive", { runId: run.id }, { workspaceId: run.workspaceId, runAt: new Date(Date.now() + secs * 1000 + 250), dedupeKey: `arc-delay:${run.id}:${node.key}` });
@@ -175,7 +255,8 @@ export class ArcRuntime {
         case "output": return await this.executeOutputNode(run, graph, node, rns, t0);
       }
     } catch (e) {
-      console.error("[arc.executeNode]", e);
+      if (e instanceof RuntimeLeaseLostError) throw e;
+      obs("arc.node_failed", { runId: run.id, machineId: node.machineId, nodeKey: node.key, error: errorSummary(e) });
       await this.nodeFailure(run, node, "Unexpected node error.", {});
     }
   }
@@ -184,7 +265,7 @@ export class ArcRuntime {
     const ctx = this.context(graph, rns, run.triggerPayload.input);
     const upstream = this.upstreamText(graph, rns, node.key) || run.triggerPayload.input;
     const instruction = node.config.instruction?.trim() ? interpolate(node.config.instruction, ctx) : upstream;
-    const where = and(eq(arcRunNodes.arcRunId, run.id), eq(arcRunNodes.nodeKey, node.key));
+    const where = and(eq(arcRunNodes.arcRunId, run.id), eq(arcRunNodes.nodeKey, node.key), this.nodeOwner(run.id));
     await db.update(arcRunNodes).set({ inputPayload: { text: instruction } }).where(where);
     // Server-side workspace enforcement: never trust the snapshot's machine id alone.
     const [m] = node.machineId ? await db.select().from(machines).where(and(eq(machines.id, node.machineId), eq(machines.workspaceId, run.workspaceId))) : [];
@@ -193,12 +274,23 @@ export class ArcRuntime {
     const attempts: { attempt: number; status: string; taskId?: string; cost: number; error?: string }[] = [];
     let cost = 0;
     for (let a = 1; a <= retries + 1; a++) {
+      await this.assertOwned(run.id);
       if (a > 1) await this.event(run.id, node.key, "retry", `${node.label} RETRY · ATTEMPT ${a}/${retries + 1}`);
       try {
-        const rt = await MachineRuntime.load(m.id, run.workspaceId);
-        const { task, run: mrun } = await rt.createRun(instruction, "arc", { allowBusy: true });
-        await db.update(arcRunNodes).set({ machineTaskId: task.id, machineRunId: mrun.id, attempts: a }).where(where);
-        const res = await rt.execute(mrun.id);
+        await this.assertOwned(run.id);
+        const { rt, task, mrun } = await db.transaction(async tx => {
+          // Hold the parent row while creating and associating the child, or roll everything back.
+          const [parent] = await tx.select({ id: arcRuns.id }).from(arcRuns).where(and(this.ownedWhere(run.id), notInArray(arcRuns.status, [...TERMINAL]))).for("update");
+          if (!parent || getJobContext()?.signal.aborted || driverContext.getStore()?.controller.signal.aborted) throw new RuntimeLeaseLostError();
+          const rt = await MachineRuntime.load(m.id, run.workspaceId, tx);
+          const { task, run: mrun } = await rt.createRun(instruction, "arc", { allowBusy: true }, tx);
+          const [linked] = await tx.update(arcRunNodes).set({ machineTaskId: task.id, machineRunId: mrun.id, attempts: a }).where(where).returning({ id: arcRunNodes.id });
+          if (!linked || getJobContext()?.signal.aborted || driverContext.getStore()?.controller.signal.aborted) throw new RuntimeLeaseLostError();
+          return { rt, task, mrun };
+        });
+        await this.assertOwned(run.id);
+        const res = await rt.execute(mrun.id, driverContext.getStore()?.controller.signal);
+        await this.assertOwned(run.id);
         if (res.status === "completed") {
           cost += res.cost;
           attempts.push({ attempt: a, status: "completed", taskId: task.id, cost: res.cost });
@@ -217,6 +309,7 @@ export class ArcRuntime {
         cost += res.cost ?? 0;
         if (res.status === "cancelled" || res.status === "budget_exceeded") break;
       } catch (e) {
+        if (e instanceof RuntimeLeaseLostError) throw e;
         attempts.push({ attempt: a, status: "failed", cost: 0, error: e instanceof RuntimeError ? e.userMessage : "Machine could not start." });
       }
     }
@@ -240,7 +333,7 @@ export class ArcRuntime {
     const ctx = this.context(graph, rns, run.triggerPayload.input);
     const data = node.config.display?.trim() ? interpolate(node.config.display, ctx) : this.upstreamText(graph, rns, node.key);
     await db.insert(arcApprovals).values({ workspaceId: run.workspaceId, arcRunId: run.id, nodeKey: node.key, kind: "review", title: node.config.title?.trim() || "OPERATOR REVIEW REQUIRED", reason: interpolate(node.config.reason ?? "", ctx), data });
-    await db.update(arcRunNodes).set({ status: "waiting", inputPayload: { text: data } }).where(and(eq(arcRunNodes.arcRunId, run.id), eq(arcRunNodes.nodeKey, node.key)));
+    await db.update(arcRunNodes).set({ status: "waiting", inputPayload: { text: data } }).where(and(eq(arcRunNodes.arcRunId, run.id), eq(arcRunNodes.nodeKey, node.key), this.nodeOwner(run.id)));
     await this.event(run.id, node.key, "wait", `${node.label} WAITING FOR OPERATOR APPROVAL`);
     await this.activity(run.workspaceId, node.label, `Arc Run ${runCode(run.number)} paused for operator approval.`, "warning");
   }
@@ -253,7 +346,8 @@ export class ArcRuntime {
   }
 
   private static async nodeFailure(run: Run, node: GraphNode, reason: string, input: { text?: string }, attempts: unknown[] = []) {
-    const where = and(eq(arcRunNodes.arcRunId, run.id), eq(arcRunNodes.nodeKey, node.key));
+    await this.assertOwned(run.id);
+    const where = and(eq(arcRunNodes.arcRunId, run.id), eq(arcRunNodes.nodeKey, node.key), this.nodeOwner(run.id));
     const policy = node.type === "machine" ? node.config.onFailure ?? "stop" : "stop";
     if (policy === "skip") {
       await db.update(arcRunNodes).set({ status: "failed", errorMessage: reason, inputPayload: input, outputPayload: { text: "", continued: true, attempts }, completedAt: new Date() }).where(where);
@@ -290,7 +384,7 @@ export class ArcRuntime {
       const attempts = [...prev, { attempt: rn.attempts, status: mr?.status ?? "failed", taskId: task?.id, cost: mr?.cost ?? 0, error: mr?.error ?? "Machine run failed." }];
       await this.nodeFailure(run, node, `Machine execution ${mr?.status === "cancelled" ? "was cancelled" : "failed"} — ${mr?.error ?? "unknown error"}`, { text: rn.inputPayload?.text }, attempts);
     }
-    await db.update(arcRuns).set({ status: "running" }).where(and(eq(arcRuns.id, run.id), notInArray(arcRuns.status, [...TERMINAL])));
+    await db.update(arcRuns).set({ status: "running" }).where(and(this.ownedWhere(run.id), notInArray(arcRuns.status, [...TERMINAL])));
     await enqueue("arc.drive", { runId: run.id }, { workspaceId: run.workspaceId });
   }
 
@@ -319,7 +413,7 @@ export class ArcRuntime {
       return run.id;
     }
     await this.activity(workspaceId, rn?.label ?? "ARC", `Operator ${approve ? "approved" : "rejected"} review node in ${runCode(run.number)}.`, approve ? "success" : "warning");
-    await db.update(arcRuns).set({ status: "running" }).where(and(eq(arcRuns.id, run.id), notInArray(arcRuns.status, [...TERMINAL])));
+    await db.update(arcRuns).set({ status: "running" }).where(and(this.ownedWhere(run.id), notInArray(arcRuns.status, [...TERMINAL])));
     return run.id;
   }
 
@@ -327,10 +421,11 @@ export class ArcRuntime {
   static async finalize(runId: string) {
     const [run] = await db.select().from(arcRuns).where(eq(arcRuns.id, runId));
     if (!run || isTerminal(run.status)) return;
+    await this.assertOwned(runId);
     const rns = await this.runNodes(runId);
     const waiting = rns.filter((r) => r.status === "waiting");
     if (waiting.length) {
-      await db.update(arcRuns).set({ status: waiting.some((w) => w.nodeType !== "delay") ? "waiting_approval" : "waiting_delay" }).where(eq(arcRuns.id, runId));
+      await db.update(arcRuns).set({ status: waiting.some((w) => w.nodeType !== "delay") ? "waiting_approval" : "waiting_delay" }).where(and(this.ownedWhere(runId), notInArray(arcRuns.status, [...TERMINAL])));
       return;
     }
     if (rns.some((r) => ["pending", "queued", "running"].includes(r.status))) return;
@@ -338,11 +433,12 @@ export class ArcRuntime {
   }
 
   static async completeRun(run: Run, rns: RunNode[]) {
+    await this.assertOwned(run.id);
     const outs = rns.filter((r) => r.nodeType === "output" && r.status === "completed");
     const finalOutput = outs.length ? outs.map((o) => `${String(o.outputPayload?.outputName ?? o.label)}\n\n${o.outputPayload?.text ?? ""}`).join("\n\n────────\n\n") : "No Output node was reached on the executed path.";
     const cost = rns.reduce((a, r) => a + r.cost, 0);
     const durationMs = Date.now() - (run.startedAt?.getTime() ?? Date.now());
-    const [done] = await db.update(arcRuns).set({ status: "completed", finalOutput, cost, durationMs, completedAt: new Date() }).where(and(eq(arcRuns.id, run.id), notInArray(arcRuns.status, [...TERMINAL]))).returning();
+    const [done] = await db.update(arcRuns).set({ status: "completed", finalOutput, cost, durationMs, completedAt: new Date() }).where(and(this.ownedWhere(run.id), notInArray(arcRuns.status, [...TERMINAL]))).returning();
     if (!done) return;
     await this.bumpArc(run.arcId, true, cost, durationMs);
     await this.event(run.id, null, "run", "ARC COMPLETED");
@@ -353,10 +449,11 @@ export class ArcRuntime {
   static async failRun(runId: string, nodeKey: string | null, reason: string) {
     const [cur] = await db.select().from(arcRuns).where(eq(arcRuns.id, runId));
     if (!cur || isTerminal(cur.status)) return;
+    await this.assertOwned(runId);
     const rns = await this.runNodes(runId);
     const cost = rns.reduce((a, r) => a + r.cost, 0);
     const durationMs = Date.now() - (cur.startedAt?.getTime() ?? Date.now());
-    const [run] = await db.update(arcRuns).set({ status: "failed", errorMessage: reason, failedNodeKey: nodeKey, cost, durationMs, completedAt: new Date() }).where(and(eq(arcRuns.id, runId), notInArray(arcRuns.status, [...TERMINAL]))).returning();
+    const [run] = await db.update(arcRuns).set({ status: "failed", errorMessage: reason, failedNodeKey: nodeKey, cost, durationMs, completedAt: new Date() }).where(and(this.ownedWhere(runId), notInArray(arcRuns.status, [...TERMINAL]))).returning();
     if (!run) return;
     await db.update(arcRunNodes).set({ status: "skipped" }).where(and(eq(arcRunNodes.arcRunId, runId), inArray(arcRunNodes.status, ["pending", "queued", "waiting"])));
     await db.update(arcApprovals).set({ status: "cancelled" }).where(and(eq(arcApprovals.arcRunId, runId), eq(arcApprovals.status, "pending")));
@@ -400,7 +497,7 @@ export class ArcRuntime {
 
   private static async complete(runId: string, key: string, r: { branch: string; input?: { text?: string }; output: Record<string, unknown> & { text?: string }; cost?: number; t0: number }) {
     await db.update(arcRunNodes).set({ status: "completed", branch: r.branch, ...(r.input ? { inputPayload: r.input } : {}), outputPayload: r.output, cost: r.cost ?? 0, completedAt: new Date(), durationMs: Date.now() - r.t0 })
-      .where(and(eq(arcRunNodes.arcRunId, runId), eq(arcRunNodes.nodeKey, key)));
+      .where(and(eq(arcRunNodes.arcRunId, runId), eq(arcRunNodes.nodeKey, key), this.nodeOwner(runId)));
   }
 
   static context(graph: Graph, rns: RunNode[], input: string): RefContext {

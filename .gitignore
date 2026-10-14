@@ -8,6 +8,3 @@ next-env.d.ts
 !.env.example
 .validation/
 supabase/.temp/
-
-.vercel
-.env*

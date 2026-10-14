@@ -167,6 +167,7 @@ export const machineRuns = pgTable("machine_runs", {
   memoryIds: jsonb("memory_ids").$type<string[]>().default([]).notNull(),
   cancelRequested: boolean("cancel_requested").default(false).notNull(),
   lockUntil: timestamp("lock_until"),
+  lockOwner: text("lock_owner"),
   error: text("error"),
   errorKind: text("error_kind"),
   startedAt: timestamp("started_at"),
@@ -379,6 +380,7 @@ export const arcRuns = pgTable("arc_runs", {
   errorMessage: text("error_message"),
   failedNodeKey: text("failed_node_key"),
   lockUntil: timestamp("lock_until"),
+  lockOwner: text("lock_owner"),
   createdAt: created(),
 }, (t) => [index("arc_runs_arc_idx").on(t.arcId, t.createdAt), index("arc_runs_ws_idx").on(t.workspaceId, t.createdAt)]);
 
@@ -487,6 +489,7 @@ export const jobs = pgTable("jobs", {
   completedAt: timestamp("completed_at"),
 }, (t) => [
   index("jobs_claim_idx").on(t.status, t.runAt, t.priority),
+  index("jobs_stale_lease_idx").on(t.lockedUntil).where(sql`${t.status} = 'running'`),
   uniqueIndex("jobs_dedupe_active_uq").on(t.dedupeKey).where(sql`${t.status} in ('queued','running') and ${t.dedupeKey} is not null`),
   index("jobs_ws_idx").on(t.workspaceId, t.createdAt),
 ]);
@@ -510,6 +513,7 @@ export const schedules = pgTable("schedules", {
   kind: text("kind").default("interval").notNull(), // interval | cron
   intervalSec: integer("interval_sec"),
   cron: text("cron"),
+  timezone: text("timezone").default("UTC").notNull(),
   input: text("input").default("").notNull(),
   enabled: boolean("enabled").default(true).notNull(),
   overlap: text("overlap").default("skip").notNull(), // skip | queue

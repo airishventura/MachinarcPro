@@ -14,6 +14,8 @@ If test credentials are in `.env.local`, run `node --env-file=.env.local node_mo
 
 ## Execution and demos
 
+Persistent Botkeep worker, scheduler and webhook ingress setup is documented in [docs/BOTKEEP_ARCHITECTURE.md](docs/BOTKEEP_ARCHITECTURE.md). Apply the additive Botkeep migration before deploying the updated services. The Vercel dashboard and Supabase PostgreSQL database stay in place.
+
 Run a dedicated worker with `npm run worker` where a continuously running process is available. Set `MARC_WORKER=off` on web processes when using dedicated workers.
 
 Public demos receive separate workspaces, use the mock provider, cannot connect credentials, and start with schedules disabled. Old shared demo sessions are rejected. Visitor sessions expire seven days after creation; workers remove expired isolated visitor demos in bounded batches, preserving shared workspaces, registered identities, credentials, and active work.

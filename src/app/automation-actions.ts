@@ -5,7 +5,7 @@ import { db } from "@/db";
 import { activities, eventTriggers, jobs, schedules, webhooks } from "@/db/schema";
 import { requireSession } from "@/lib/auth";
 import { computeNextRun, resolveTarget } from "@/lib/automation/triggers";
-import { parseCron } from "@/lib/automation/cron";
+import { parseCron, scheduleTimezone } from "@/lib/automation/cron";
 import { enqueue } from "@/lib/queue/queue";
 import { mintWebhookToken } from "@/lib/automation/webhook-token";
 
@@ -13,12 +13,14 @@ type R<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 const P = "/app/automation";
 const log = (workspaceId: string, actor: string, message: string) => db.insert(activities).values({ workspaceId, category: "system", actor, message });
 
-export async function createScheduleAction(f: { name: string; targetType: string; targetId: string; kind: "interval" | "cron"; intervalMin?: number; cron?: string; input: string; overlap: "skip" | "queue" }): Promise<R> {
+export async function createScheduleAction(f: { name: string; targetType: string; targetId: string; kind: "interval" | "cron"; intervalMin?: number; cron?: string; timezone?: string; input: string; overlap: "skip" | "queue" }): Promise<R> {
   const s = await requireSession();
   const target = await resolveTarget(s.workspace.id, f.targetType, f.targetId);
   if (!target) return { ok: false, error: "Choose a Machine or Arc from this workspace." };
   const name = f.name.trim().slice(0, 60) || `${target.name} schedule`;
   let intervalSec: number | null = null, cron: string | null = null;
+  let timezone: string;
+  try { timezone = scheduleTimezone(f.timezone ?? "UTC"); } catch { return { ok: false, error: "Choose a valid IANA timezone, such as Asia/Jakarta." }; }
   if (f.kind === "interval") {
     const m = Math.round(Number(f.intervalMin));
     if (!(m >= 1 && m <= 43200)) return { ok: false, error: "Interval must be between 1 minute and 30 days." };
@@ -26,8 +28,9 @@ export async function createScheduleAction(f: { name: string; targetType: string
   } else {
     try { parseCron(f.cron ?? ""); cron = f.cron!.trim(); } catch (e) { return { ok: false, error: `Invalid cron: ${(e as Error).message}` }; }
   }
-  const nextRunAt = computeNextRun({ kind: f.kind, intervalSec, cron });
-  await db.insert(schedules).values({ workspaceId: s.workspace.id, name, targetType: target.type, targetId: target.id, kind: f.kind, intervalSec, cron, input: f.input.slice(0, 4000), overlap: f.overlap === "queue" ? "queue" : "skip", nextRunAt });
+  let nextRunAt: Date;
+  try { nextRunAt = computeNextRun({ kind: f.kind, intervalSec, cron, timezone }); } catch (e) { return { ok: false, error: `Invalid schedule: ${(e as Error).message}` }; }
+  await db.insert(schedules).values({ workspaceId: s.workspace.id, name, targetType: target.type, targetId: target.id, kind: f.kind, intervalSec, cron, timezone, input: f.input.slice(0, 4000), overlap: f.overlap === "queue" ? "queue" : "skip", nextRunAt });
   await log(s.workspace.id, s.user.name, `Schedule "${name}" created for ${target.name}.`);
   revalidatePath(P);
   return { ok: true };
