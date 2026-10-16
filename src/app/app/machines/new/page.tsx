@@ -32,8 +32,8 @@ export default async function NewMachine({ searchParams }: { searchParams: Promi
       </PageHeader>
       {!openai && !anthropic && !chatgpt?.connected && (
         <div className="flex flex-col gap-2 border border-warn/40 bg-warn/5 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div><div className="t-section !text-warn">NO AI PROVIDER CONNECTED</div><p className="t-secondary mt-1">Connect a provider to execute real Machine tasks. Until then, Machines run on Mock Runtime with simulated tools.</p></div>
-          <Link href="/app/settings/integrations" className="btn">Connect Provider</Link>
+          <div><div className="t-section !text-warn">{workspace.policy.demo ? "MOCK RUNTIME DEMO" : "NO AI PROVIDER CONNECTED"}</div><p className="t-secondary mt-1">{workspace.policy.demo ? "Create a Machine with Mock Runtime to try simulated tasks. Credential connections are disabled in visitor demos." : "Connect a provider to execute real Machine tasks. Until then, Machines run on Mock Runtime with simulated tools."}</p></div>
+          <Link href={workspace.policy.demo ? "/docs/status" : "/app/settings/integrations"} className="btn">{workspace.policy.demo ? "Beta status & limits" : "Connect Provider"}</Link>
         </div>
       )}
       <MachineBuilder key={starter ?? "blank"} initial={initial} available={available} models={[...MODELS, ...(chatgpt?.models ?? [])]} />

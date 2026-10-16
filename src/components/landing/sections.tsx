@@ -42,6 +42,7 @@ export function NetworkCards() {
       {CARDS.map((c, i) => (
         <Reveal key={c.code} delay={i * 80}>
           <Spotlight className="h-full bg-bg p-6">
+            <p className="label mb-4">SIMULATED MACHINE · EXAMPLE METRICS</p>
             <div className="flex items-center justify-between"><Glyph code={c.code} active /><Status s="online" /></div>
             <div className="mt-8 font-mono text-lg tracking-[.12em]">{c.code}</div>
             <div className="text-sm text-mute">{c.cap}</div>
@@ -54,10 +55,10 @@ export function NetworkCards() {
 }
 
 const CAPS = [
-  ["REAL TOOLS", "Live web search, page fetching, HTTP and custom APIs — every call SSRF-guarded and permission-checked."],
-  ["HUMAN AUTHORIZATION", "Sensitive actions pause the run. Nothing external happens until an operator approves."],
-  ["DURABLE RUNTIME", "Schedules, webhooks and event triggers execute on crash-safe workers. Runs resume where they stopped."],
-  ["FULL TELEMETRY", "Every turn, tool call, source, token and cent — inspectable after the fact."],
+  ["TOOLS & PERMISSIONS", "Configured providers can use web and API tools with destination checks. Public demos simulate external calls."],
+  ["HUMAN AUTHORIZATION", "Actions set to ASK pause for review. Operators choose which permissions allow, ask, or deny."],
+  ["DURABLE RUNTIME", "Workers recover persisted runs. An interrupted action with an unknown outcome stops for reconciliation."],
+  ["RUN TELEMETRY", "Inspect recorded tool activity, sources, usage, and cost estimates. Unknown pricing is disclosed."],
 ];
 export function CapabilityGrid() {
   return (

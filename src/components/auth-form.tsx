@@ -18,7 +18,8 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       {state?.error && <p role="alert" className="border border-bad/40 bg-bad/10 px-3 py-2 font-mono text-xs text-bad">{state.error}</p>}
       <button disabled={pending} className="btn btn-primary h-11 w-full">{pending ? (mode === "login" ? "AUTHENTICATING…" : "PROVISIONING WORKSPACE…") : mode === "login" ? "Sign in" : "Create operator account"}</button>
       <button type="button" disabled title="Google OAuth requires GOOGLE_CLIENT_ID configuration" className="btn h-11 w-full">Continue with Google · soon</button>
-      <button type="submit" formAction={enterDemoAction} formNoValidate className="btn h-11 w-full border-amber/60 text-amber">Enter Demo · no account needed</button>
+      <button type="submit" formAction={enterDemoAction} formNoValidate className="btn h-11 w-full border-amber/60 text-amber">Try Demo · no account needed</button>
+      <p className="text-sm leading-relaxed text-mute">Demo runs use Mock Runtime and simulated tools. Real AI requires a separately configured provider. <Link href="/docs/status" className="text-fg underline underline-offset-4">Beta status &amp; limits</Link></p>
       <p className="text-center text-sm text-mute">
         {mode === "login" ? <>New operator? <Link className="text-fg underline underline-offset-4" href="/register">Create account</Link></> : <>Have an account? <Link className="text-fg underline underline-offset-4" href="/login">Sign in</Link></>}
       </p>

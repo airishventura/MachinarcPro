@@ -15,7 +15,21 @@ export const dynamic = "force-dynamic";
 export default async function Integrations({ searchParams }: { searchParams: Promise<{ chatgpt?: string }> }) {
   const { workspace } = await requireSession();
   const query = await searchParams;
-  const chatgpt = await isDemoWorkspace(workspace.id) ? null : await chatgptLocalStatus(workspace.id);
+  if (await isDemoWorkspace(workspace.id)) {
+    return <div className="space-y-6">
+      <PageHeader title="INTEGRATIONS" sub="This visitor workspace uses Mock Runtime. Credential connections and integration changes are disabled."><Link href="/app/settings" className="btn">Settings</Link></PageHeader>
+      <section aria-labelledby="demo-provider" className="border border-line bg-bg3 p-5">
+        <h2 id="demo-provider" className="t-section">MOCK RUNTIME · BUILT-IN</h2>
+        <p className="mt-3 text-sm leading-relaxed text-mute">Try Machine configuration, simulated external tools, and run inspection without connecting an account or supplying API keys. No real external sources are accessed.</p>
+      </section>
+      <section aria-labelledby="demo-connections" className="border border-line p-5">
+        <h2 id="demo-connections" className="t-section">CREDENTIAL CONNECTIONS DISABLED</h2>
+        <p className="mt-3 text-sm leading-relaxed text-mute">OpenAI, Anthropic, search-provider credentials, and custom API configuration require a registered workspace. ChatGPT sign-in is local-only and unavailable in visitor demos. Do not enter secrets into a demo.</p>
+        <Link href="/docs/status#real-ai" className="btn mt-4">Real AI capabilities &amp; limits</Link>
+      </section>
+    </div>;
+  }
+  const chatgpt = await chatgptLocalStatus(workspace.id);
   const providers = await Promise.all((["openai", "anthropic"] as const).map(async (id) => {
     const [row, mode] = await Promise.all([getIntegration(workspace.id, id), providerConfigured(workspace.id, id)]);
     const hint = row ? await secretHint(workspace.id, row.id) : null;

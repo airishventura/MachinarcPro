@@ -11,7 +11,7 @@ export default async function Economy() {
   const maxC = Math.max(1, ...perMachine.map((p) => p.cost));
   return (
     <div className="space-y-6">
-      <PageHeader title="ECONOMY" sub="Lifetime completed Credit transactions. Provider cost estimates are reported separately in USD and exclude Mock Runtime. Credits are internal units, not a cash balance." eyebrow={<span className="label">BALANCE · <span className="text-fg">{money(ws.credits)} Cr</span></span>} />
+      <PageHeader title="ECONOMY" sub="Lifetime completed Credit transactions. Provider cost estimates are reported separately in USD and exclude Mock Runtime. Credits are internal units, not cash or an onchain token; they have no conversion to a proposed community token." eyebrow={<span className="label">BALANCE · <span className="text-fg">{money(ws.credits)} Cr</span></span>} />
       <div className="grid grid-cols-2 gap-px border border-line bg-line md:grid-cols-3 xl:grid-cols-6">
         <Kpi label="Machine Revenue" value={money(revenue)} hint="Credits in" tone="ok" />
         <Kpi label="Machine Spend" value={money(spend)} hint="network hires" />
