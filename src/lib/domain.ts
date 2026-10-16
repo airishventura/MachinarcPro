@@ -52,3 +52,4 @@ export function ago(d: Date | string | null | undefined) {
   return `${Math.floor(s / 86400)}d ago`;
 }
 export const hhmmss = (d: Date | string) => new Date(d).toTimeString().slice(0, 8);
+export const hhmmssUtc = (d: Date | string) => new Date(d).toISOString().slice(11, 19);
