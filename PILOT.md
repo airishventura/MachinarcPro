@@ -44,8 +44,8 @@ Ask each participant to create a Machine, run their task, inspect its sources an
 ## Release checklist
 
 - [x] Local operator smoke check (16 October 2026): create a Mock Runtime Machine, complete a task, inspect its saved run on desktop and at 390px phone width, confirm no credential forms and zero stored credentials, and reject a private-workspace Machine with 404. Run `a6aee123-99ff-45ad-9b9f-c2b6b4b37446`; evidence in ignored `.validation/launch-demo-result.json` and `launch-demo-*.jpg`. This is not a participant session or production acceptance.
-- [ ] Desktop and phone demo: isolated workspace, create Machine, run and inspect; mock and sample labels visible, credential connections blocked.
-- [ ] Public status page at `/docs/status` matches deployed capabilities; support mailbox and links checked.
+- [x] Protected staging acceptance (16 October 2026): the public status page was reviewed, and a fresh isolated visitor workspace created a Machine and completed and inspected a mock run at desktop and 390px phone widths. Mock execution and simulated sources were labeled; demo integrations were read-only with no credential inputs, and the workspace stored zero integration credentials. The authenticated worker endpoint rejected an unauthenticated request. Evidence: staging run `d03ba034-a0e2-44b5-8ec4-ef284c82057b` in the review record for PR #8. This is hosted mock acceptance, not hosted real-AI or participant acceptance.
+- [ ] Owner confirms `hello@machinarcpro.com` receives mail and is monitored; support contact link and published guidance are checked. Mailbox delivery has not been tested.
 - [ ] At least three consenting operators complete their intended task and understand approvals and limitations.
 - [ ] No unresolved data exposure, lost work or duplicated external action. Record and resolve failures before continuing.
 - [ ] Owner reviews actual outcomes and explicitly approves readiness. No invented customer, uptime, revenue or pilot metrics.
