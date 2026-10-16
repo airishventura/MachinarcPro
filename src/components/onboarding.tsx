@@ -1,6 +1,7 @@
 "use client";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { finishOnboarding } from "@/app/actions";
 import { Glyph, Logo } from "@/components/ui";
 import { STARTERS, TYPE_LABEL } from "@/lib/domain";
@@ -19,7 +20,8 @@ export function Onboarding({ name }: { name: string }) {
           <div className="fade-up">
             <div className="label">01 / 02 · OPERATOR {name.toUpperCase()}</div>
             <h1 className="mt-4 text-4xl font-medium tracking-tight md:text-5xl">WELCOME TO MACHINARC</h1>
-            <p className="mt-5 max-w-lg text-lg text-mute">MachinArc lets you create autonomous Machines that operate continuously toward a defined objective.</p>
+            <p className="mt-5 max-w-lg text-lg text-mute">Configure a Machine with an objective, tools, and permissions, then inspect its work.</p>
+            <p className="mt-4 text-sm leading-relaxed text-mute">Start with Mock Runtime. Example history and simulated tools demonstrate the interface. Hosted real AI requires a provider API key and remains under evaluation; ChatGPT sign-in is local-only. Credits are internal units. <Link href="/docs/status" className="text-amber underline underline-offset-4">Beta status &amp; limits</Link></p>
             <ul className="mt-8 grid gap-px border border-line bg-line sm:grid-cols-3">
               {[["CREATE", "Define identity and objective"], ["DEPLOY", "Bring it online with safe defaults"], ["OBSERVE", "Watch every run, live"]].map(([k, v], i) => <li key={k} className="bg-bg p-4"><div className="t-caption">0{i + 1}</div><div className="mt-2 font-mono text-sm tracking-widest">{k}</div><div className="t-secondary">{v}</div></li>)}
             </ul>

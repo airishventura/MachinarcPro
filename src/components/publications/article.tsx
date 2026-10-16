@@ -22,8 +22,9 @@ export function PublicationArticle({ publication }: { publication: Publication }
         {section.bullets && <ul>{section.bullets.map((bullet, i) => <li key={i}>{bullet}</li>)}</ul>}
         {section.code && <div className="book-code"><div>Example</div><pre><code>{section.code}</code></pre></div>}
         {section.callout && <aside className="book-callout"><strong>{section.callout.title}</strong><p>{section.callout.body}</p></aside>}
+        {section.links && <ul>{section.links.map((link) => <li key={link.href}><a href={link.href}>{link.label}</a></li>)}</ul>}
       </section>)}</div>
-      <div className="book-page-bottom"><span>Living documentation · October 2026</span><Link href="/docs/operations">Product status & limits ↗</Link></div>
+      <div className="book-page-bottom"><span>Living documentation · October 2026</span><Link href="/docs/status">Product status & limits ↗</Link></div>
       <nav className="book-pagination" aria-label="Adjacent pages">
         {previous ? <Link href={publicationHref(previous)}><span>← Previous</span><strong>{previous.title}</strong></Link> : <Link href="/"><span>← Back to</span><strong>MachinArc</strong></Link>}
         {next && <Link href={publicationHref(next)} className="book-next"><span>Next →</span><strong>{next.title}</strong></Link>}

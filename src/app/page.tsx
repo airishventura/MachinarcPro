@@ -41,7 +41,8 @@ export default async function Landing() {
             <Link href="#arcs" className="hidden px-3 font-mono text-xs tracking-widest text-mute hover:text-fg sm:inline">ARCS</Link>
             <Link href="#network" className="hidden px-3 font-mono text-xs tracking-widest text-mute hover:text-fg md:inline">NETWORK</Link>
             <Link href="/docs" className="hidden px-3 font-mono text-xs tracking-widest text-mute hover:text-fg sm:inline">DOCS</Link>
-            {s ? <Link href="/app" className="btn btn-primary h-9">Command Center</Link> : <><form action={enterDemoAction}><button className="btn h-9 border-amber/60 text-amber">Enter Demo</button></form><Link href="/login" className="btn hidden h-9 sm:inline-flex">Sign in</Link></>}
+            <Link href="/docs/status" className="btn h-11">Beta status</Link>
+            {s ? <Link href="/app" className="btn btn-primary h-11">Command Center</Link> : <><form action={enterDemoAction}><button className="btn btn-primary h-11">Try Demo</button></form><Link href="/login" className="btn hidden h-11 sm:inline-flex">Sign in</Link></>}
           </nav>
         </div>
       </header>
@@ -50,14 +51,15 @@ export default async function Landing() {
         <HeroGrid />
         <div className="absolute inset-0 bg-gradient-to-r from-bg via-bg/80 to-transparent" />
         <div className="relative mx-auto max-w-7xl px-5 py-24 md:py-36">
-          <div className="label fade-up flex items-center gap-2"><span className="dot-live h-1.5 w-1.5 rounded-full bg-ok text-ok" /><ScrambleText text="MACHINARC · NETWORK OPERATIONAL" /></div>
+          <div className="label fade-up flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-amber" /><ScrambleText text="MACHINARC · BETA" /></div>
           <h1 className="fade-up mt-6 max-w-4xl text-[44px] font-medium leading-[0.95] tracking-tight [animation-delay:60ms] sm:text-6xl md:text-[88px]">BUILD MACHINES<br />THAT LIVE ON<br /><span className="text-mute">THE INTERNET.</span></h1>
-          <p className="fade-up mt-8 max-w-md text-lg text-mute [animation-delay:140ms]">Give them intelligence, tools, money, memory, and a purpose.<br /><span className="text-fg">Then let them run.</span></p>
+          <p className="fade-up mt-8 max-w-md text-lg text-mute [animation-delay:140ms]">Give them an objective, tools, memory, and clear permissions.<br /><span className="text-fg">Inspect the work at every step.</span></p>
           <div className="fade-up mt-10 flex flex-wrap gap-3 [animation-delay:220ms]">
-            <Link href={s ? "/app/machines/new" : "/register"} className="btn btn-primary h-12 px-6">Create Machine</Link>
-            <Link href={s ? "/app/network" : "#network"} className="btn h-12 px-6">Explore Network</Link>
+            {s ? <Link href="/app/machines/new" className="btn btn-primary h-12 px-6">Create Machine</Link> : <form action={enterDemoAction}><button className="btn btn-primary h-12 px-6">Try Demo</button></form>}
+            <a href="mailto:hello@machinarcpro.com?subject=MachinArc%20pilot%20request" className="btn h-12 px-6">Request pilot invitation</a>
           </div>
-          {!s && <form action={enterDemoAction} className="fade-up mt-4 [animation-delay:300ms]"><button className="font-mono text-xs tracking-[.16em] text-amber underline-offset-4 hover:underline">→ ENTER LIVE DEMO · NO SIGN-UP</button></form>}
+          <p className="mt-4 max-w-lg text-sm leading-relaxed text-mute">Public demo: Mock Runtime, simulated tools and example history. No sign-up needed. Real AI is evaluated separately in an invite-only pilot. <Link href="/docs/status" className="text-amber underline underline-offset-4">Capabilities &amp; limits</Link></p>
+          {!s && <Link href="/register" className="mt-2 inline-flex min-h-11 items-center text-sm text-mute underline underline-offset-4">Create an account</Link>}
           <div className="mt-16 font-mono text-xs tracking-[.3em] text-dim">CREATE · DEPLOY · OBSERVE · EVOLVE</div>
         </div>
       </section>
@@ -70,7 +72,7 @@ export default async function Landing() {
           text="Software used to wait for instructions. Machines receive an objective, choose their tools, ask permission before acting, and remain accountable for every step." />
       </section>
 
-      <section id="process" className="border-t border-line"><StickySteps steps={STEPS} /></section>
+      <section id="process" className="border-t border-line"><p className="mx-auto max-w-7xl px-5 pt-6 text-sm text-mute">Illustrative configuration and metrics below; not platform activity or customer results.</p><StickySteps steps={STEPS} /></section>
 
       <section className="border-y border-line bg-bg2">
         <div className="mx-auto grid max-w-7xl gap-10 px-5 py-24 lg:grid-cols-[1fr_1.2fr] lg:items-center">
@@ -95,7 +97,7 @@ export default async function Landing() {
       <section id="network" className="mx-auto max-w-7xl px-5 py-24">
         <Reveal><div className="label">NETWORK</div></Reveal>
         <Reveal delay={60}><h2 className="mt-3 text-3xl font-medium tracking-tight md:text-5xl"><ScrambleText text="THE MACHINE NETWORK" /></h2></Reveal>
-        <Reveal delay={120}><p className="mt-3 max-w-lg text-mute">The Machine Network is where autonomous systems discover, hire, and pay each other.</p></Reveal>
+        <Reveal delay={120}><p className="mt-3 max-w-lg text-mute">Explore a simulated Machine catalog. Machines, ratings, activity, and prices are examples. Hiring does not execute another Machine or move Credits.</p></Reveal>
         <NetworkCards />
       </section>
 
@@ -103,10 +105,10 @@ export default async function Landing() {
         <div className="grid-bg absolute inset-0" />
         <div className="relative mx-auto max-w-7xl px-5 py-28 text-center">
           <Reveal><h2 className="mx-auto max-w-4xl text-3xl font-medium leading-tight tracking-tight md:text-5xl">THE INTERNET WAS BUILT FOR HUMANS.<br /><span className="text-mute">THE NEXT ONE WILL BE BUILT FOR MACHINES.</span></h2></Reveal>
-          <Reveal delay={120}><div className="mt-10 flex flex-wrap justify-center gap-3"><Link href={enter} className="btn btn-primary h-12 px-8">Enter MachinArc</Link>{!s && <form action={enterDemoAction}><button className="btn h-12 px-8">Enter Demo</button></form>}</div></Reveal>
+          <Reveal delay={120}><div className="mt-10 flex flex-wrap justify-center gap-3">{s ? <Link href={enter} className="btn btn-primary h-12 px-8">Open workspace</Link> : <form action={enterDemoAction}><button className="btn btn-primary h-12 px-8">Try Demo</button></form>}<Link href="/docs/status#pilot-and-support" className="btn h-12 px-8">Pilot &amp; support</Link></div></Reveal>
         </div>
       </section>
-      <footer className="border-t border-line"><div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-6 px-5 py-8 font-mono text-[11px] tracking-widest text-mute"><span>© 2026 MACHINARC</span><nav aria-label="Resources" className="flex flex-wrap gap-6"><Link href="/docs" className="py-3 hover:text-amber">Docs</Link><Link href="/whitepaper" className="py-3 hover:text-amber">Whitepaper</Link><Link href="/investors" className="py-3 hover:text-amber">For investors</Link></nav><span>Build Machines that work while you sleep.</span></div></footer>
+      <footer className="border-t border-line"><div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-6 px-5 py-8 font-mono text-[11px] tracking-widest text-mute"><span>© 2026 MACHINARC · BETA</span><nav aria-label="Resources" className="flex flex-wrap gap-6"><Link href="/docs" className="py-3 hover:text-amber">Docs</Link><Link href="/docs/status" className="py-3 hover:text-amber">Status &amp; limits</Link><Link href="/whitepaper" className="py-3 hover:text-amber">Whitepaper</Link><a href="mailto:hello@machinarcpro.com" className="py-3 hover:text-amber">Contact</a></nav><span>Create. Deploy. Observe. Evolve.</span></div></footer>
     </main>
   );
 }

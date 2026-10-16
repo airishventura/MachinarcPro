@@ -1,5 +1,7 @@
 # MachinArc
 
+Beta launch preparation: the public demo uses Mock Runtime; real AI is evaluated separately in an invite-only local pilot. See `/docs/status` for public capabilities, `PILOT.md` for session gates, and [the Orynth launch package](docs/ORYNTH_LAUNCH.md) for community-token preparation and owner inputs. Internal Credits are separate from the proposed token. Contact: hello@machinarcpro.com.
+
 Install the locked dependencies with `npm ci`. Use Node.js 22 or newer.
 
 Set `DATABASE_URL` in an ignored `.env.local` file, apply the Drizzle migrations to your application database, then run `npm run dev`. Set `MARC_ENCRYPTION_KEY` to a private random value of at least 32 characters before connecting real integrations. Never commit credentials.

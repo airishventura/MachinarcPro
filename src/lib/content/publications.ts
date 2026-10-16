@@ -5,6 +5,7 @@ export type PublicationSection = {
   bullets?: string[];
   code?: string;
   callout?: { title: string; body: string };
+  links?: { label: string; href: string }[];
 };
 
 export type Publication = {
@@ -20,6 +21,43 @@ export function publicationHref(publication: Publication): string {
 }
 
 export const PUBLICATIONS: Publication[] = [
+  {
+    category: "docs",
+    slug: "status",
+    title: "Beta status & capabilities",
+    description: "What you can try today, what remains under evaluation, and how to request a MachinArc pilot invitation.",
+    sections: [
+      {
+        id: "public-demo",
+        title: "Try the public demo",
+        paragraphs: ["MachinArc is a beta product. Choose Try Demo on the homepage for a separate visitor workspace with Mock Runtime, simulated external tools, and example history. Create a Machine, submit a task, and inspect its run to evaluate the interface. Demo results are not evidence of live AI quality, real sources, customers, or revenue.", "Demo workspaces cannot connect credentials and start with schedules disabled. Visitor sessions expire after seven days. Do not enter secrets or sensitive personal data into a demo."],
+        links: [{ label: "Open the homepage to try the demo", href: "/" }, { label: "First-run guide", href: "/docs/quickstart" }],
+      },
+      {
+        id: "real-ai",
+        title: "Real AI: local acceptance and hosted evaluation",
+        paragraphs: ["Local development supports ChatGPT sign-in on a separate database. Real local calculation, approval and resume, disconnect, and worker restart checks have passed. This connection is disabled in production and on Vercel; a ChatGPT plan does not enable hosted MachinArc inference.", "Hosted registered workspaces have OpenAI and Anthropic API-key integration paths. Hosted API-key provider acceptance remains pending. Registration does not include a hosted real-AI allowance. Provider availability, limits, and charges are separate from MachinArc Credits; unpriced usage is disclosed rather than presented as free."],
+        links: [{ label: "Local setup and acceptance evidence", href: "https://github.com/airishventura/MachinarcPro/blob/main/CHATGPT_LOCAL.md" }],
+      },
+      {
+        id: "network-and-credits",
+        title: "Network and Credits are prototype features",
+        paragraphs: ["The Network is a demonstration catalog. Its Machines, owners, ratings, task counts, and prices are examples. Simulated hires do not execute another Machine, create a transaction, or deduct Credits. Actual delegation within a workspace is a separate runtime feature.", "Credits are internal accounting units, not cash, an onchain token, or a right to payment. They have no conversion to a proposed community token. Provider USD estimates are separate estimates, not invoices."],
+      },
+      {
+        id: "community-token",
+        title: "Community token: preparation only",
+        paragraphs: ["A MachinArc community token is being prepared for a possible launch on Robinhood Chain via Orynth. No verified token address or trading link is published here. Product and pilot gates, final launch configuration, owner approval, and applicable legal review remain pending.", "The planned token is separate from app Credits and promises no product access, governance, ownership, revenue share, or investment return. There is no wallet connection, token payment, or token gating in the product. Deployment on Robinhood Chain would not establish a listing in the Robinhood trading app or Robinhood endorsement."],
+        links: [{ label: "Orynth launch documentation", href: "https://www.orynth.dev/docs" }, { label: "Robinhood Chain explanation", href: "https://robinhood.com/us/en/support/articles/robinhood-chain-testnet/" }],
+      },
+      {
+        id: "pilot-and-support",
+        title: "Pilot invitations & support",
+        paragraphs: ["The invite-only pilot is in preparation. No participant outcomes, customer counts, testimonials, or launch date are claimed. Initial supervised sessions use the validated local ChatGPT setup for bounded research or operations tasks.", "Email hello@machinarcpro.com with your intended workflow to request an invitation, or describe a problem and its non-sensitive reproduction steps for support. Mail links open your email app; submitting a message does not guarantee admission or a response time. Never send API keys, passwords, wallet seed phrases, or private keys.", "This page describes capability and launch readiness, not live uptime. Material confirmed incidents and changes to these limitations will be recorded here."],
+        links: [{ label: "Request a pilot invitation", href: "mailto:hello@machinarcpro.com?subject=MachinArc%20pilot%20request" }, { label: "Contact support", href: "mailto:hello@machinarcpro.com?subject=MachinArc%20support" }],
+      },
+    ],
+  },
   {
     category: "docs",
     slug: "overview",
@@ -49,7 +87,7 @@ export const PUBLICATIONS: Publication[] = [
         title: "What you can evaluate today",
         paragraphs: [
           "The public demo uses Mock Runtime. It lets you explore the product's configuration, workflow, and review experience with simulated model output and external tool behavior. Each visitor receives a separate workspace, credential connections are disabled, and initial schedules are turned off.",
-          "Registered workspaces have OpenAI and Anthropic integration paths. A real AI provider acceptance run is still pending because no provider key has been supplied. Demo output demonstrates the product flow; it does not establish the quality or cost of live AI execution.",
+          "Local ChatGPT calculation, approval/resume, disconnect, and worker restart acceptance have passed. This provider is local-only and disabled in production. Registered hosted workspaces have OpenAI and Anthropic API-key integration paths; hosted provider acceptance remains pending. Demo output does not establish the quality or cost of live AI execution.",
         ],
         callout: { title: "A seven-day evaluation workspace", body: "Visitor sessions expire seven days after creation. Maintenance removes eligible expired demo workspaces in bounded batches while preserving active work. Use a registered account for work you intend to retain." },
       },
@@ -450,7 +488,7 @@ export const PUBLICATIONS: Publication[] = [
         title: "What exists today",
         paragraphs: [
           "The working prototype includes workspace sessions, Machine configuration, a visual Arc builder, tool permissions, approval flows, durable job execution, trigger receipts, and recovery paths. An isolated public demo exposes the product experience with mock execution and sample history.",
-          "Real AI provider acceptance is pending. The demo is a way to inspect the product thesis and interface; it does not demonstrate paying users, live AI performance, retention, or revenue.",
+          "Local ChatGPT provider acceptance has passed; hosted API-key provider acceptance and participant pilot outcomes remain pending. The mock demo does not demonstrate paying users, live AI performance, retention, or revenue.",
         ],
       },
       {
