@@ -33,6 +33,10 @@ Run from the repository directory:
 npm.cmd run dev:chatgpt
 ```
 
+For independent local execution, start the web app with `npm.cmd run dev:chatgpt -- --separate-worker`, then run `node scripts/local-chatgpt.cjs --worker` in a second terminal. The worker uses the same isolated database and protected ChatGPT connection, remains in development mode, and exposes health only at `http://127.0.0.1:3101/health`. Closing the browser or stopping the web app does not stop this separate worker. Both processes must remain on this computer; no hosted service is involved.
+
+The database must also use UTC for the queue's zone-less timestamps. On a new local database, run `ALTER DATABASE machinarc_local SET timezone TO 'UTC';` as its administrator, then reconnect the app and worker. The launcher sets the Node.js timezone to UTC. Do not change an existing database's timezone without checking its previously scheduled timestamps.
+
 ## Credential and account behavior
 
 OAuth uses PKCE, state, a nonce, a signed/validated ID token, and the exact loopback callback `/auth/callback`. Authorization attempts expire after ten minutes and cannot be replayed. Restarting the app during sign-in requires starting a fresh attempt.
@@ -54,6 +58,8 @@ Token usage is recorded; estimated API cost is unknown for ChatGPT plan usage. M
 This provider is disabled unless `MARC_CHATGPT_LOCAL=1`, a non-production database configuration and explicit encryption key are present, `NODE_ENV` is not production, and `VERCEL` is absent. Connection routes additionally require the HTTP `127.0.0.1` origin, an authenticated owner, and a personal non-demo workspace. Shared-workspace execution is rejected.
 
 ## Verification
+
+Local independent-worker acceptance on 15 October 2026 passed using the real ChatGPT provider in `machinarc_local`. `LOCAL-WORKER-CHECK` run `9bb46b4c-fb43-43ee-857c-3b248bf99cf8` completed after its browser tab was closed (1,388 tokens). Run `91badfe4-e364-45c8-855a-6cfae0177764` resumed after the worker was forcibly stopped following a persisted calculator result; it completed on the second queue attempt with exactly one calculator execution. Recovery waited for the original three-minute runtime lease to expire. The local database default was aligned to UTC before this check; production configuration was unchanged.
 
 Run `npm.cmd run test:chatgpt-local` for mocked OAuth/JWKS, callback security, isolated credential storage, rotation, revocation, request conversion, and stream completion tests. These fixtures do not sign in to a real OpenAI account or prove real inference acceptance.
 
