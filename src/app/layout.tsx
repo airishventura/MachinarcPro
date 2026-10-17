@@ -12,6 +12,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   alternates: { canonical: SITE_URL },
   applicationName: SITE_NAME,
+  other: { "ory-verify": "orynth-f9645dc88b6a42818637c3e16066b4df" },
   robots: { index: true, follow: true },
   openGraph: { type: "website", locale: "en_US", siteName: SITE_NAME, title: `${SITE_NAME} — Accountable AI Machine operations`, description: SITE_DESCRIPTION, url: SITE_URL },
   twitter: { card: "summary_large_image", title: `${SITE_NAME} — Accountable AI Machine operations`, description: SITE_DESCRIPTION, images: ["/opengraph-image"] },
