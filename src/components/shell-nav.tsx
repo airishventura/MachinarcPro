@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { Logo } from "@/components/ui";
 import { logoutAction } from "@/app/actions";
+import { Icon, iconForLabel } from "@/components/icon";
 
 const GROUPS: { title?: string; items: [string, string][] }[] = [
   { items: [["Overview", "/app"], ["Machines", "/app/machines"], ["Arcs", "/app/arcs"], ["Network", "/app/network"], ["Automation", "/app/automation"], ["Activity", "/app/activity"]] },
@@ -28,10 +29,12 @@ function NavBody({ user, ws, credits, onNav }: { user: string; ws: string; credi
             {g.title && <div className="label mb-2 px-2 !text-dim">{g.title}</div>}
             {g.items.map(([label, href]) => {
               const a = isActive(path, href);
+              const icon = iconForLabel(label);
               return (
                 <Link key={href} href={href} onClick={onNav} aria-current={a ? "page" : undefined}
-                  className={`relative flex min-h-9 items-center px-2 py-1.5 text-sm transition-colors duration-[180ms] ${a ? "bg-panel2 text-fg" : "text-mute hover:text-fg"}`}>
+                  className={`relative flex min-h-11 items-center gap-3 px-2 py-1.5 text-sm transition-colors duration-[180ms] ${a ? "bg-panel2 text-fg" : "text-mute hover:text-fg"}`}>
                   {a && <span className="absolute left-0 top-1 bottom-1 w-px bg-amber" />}
+                  {icon && <Icon name={icon} size={17} className={a ? "text-amber" : ""} />}
                   {label}
                 </Link>
               );
@@ -48,7 +51,7 @@ function NavBody({ user, ws, credits, onNav }: { user: string; ws: string; credi
           </div>
         </div>
         <div className="mt-3 flex items-center justify-between font-mono text-[11px]"><span className="text-mute">CREDITS</span><span className="tabular-nums">{credits.toFixed(2)}</span></div>
-        <form action={logoutAction}><button className="mt-3 w-full text-left font-mono text-[11px] tracking-widest text-dim hover:text-fg">SIGN OUT →</button></form>
+        <form action={logoutAction}><button className="mt-3 flex min-h-11 w-full items-center gap-2 text-left font-mono text-[11px] tracking-widest text-dim hover:text-fg"><Icon name="logout" size={15} />SIGN OUT</button></form>
       </div>
     </div>
   );
@@ -63,7 +66,7 @@ export function ShellNav(p: { user: string; ws: string; credits: number }) {
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 border-r border-line bg-bg2 lg:block"><NavBody {...p} /></aside>
       <div className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-line bg-bg/95 px-4 backdrop-blur lg:hidden">
         <Link href="/app"><Logo /></Link>
-        <button aria-label="Open menu" onClick={() => setOpen(true)} className="btn h-9 px-3">MENU</button>
+        <button aria-label="Open menu" onClick={() => setOpen(true)} className="btn h-9 px-3"><Icon name="menu" size={16} />MENU</button>
       </div>
       {open && (
         <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal>
@@ -73,9 +76,9 @@ export function ShellNav(p: { user: string; ws: string; credits: number }) {
       )}
       <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-line bg-bg2 lg:hidden">
         {tabs.map(([l, h]) => (
-          <Link key={h} href={h} className={`relative flex min-h-12 items-center justify-center font-mono text-[10px] tracking-wider transition-colors duration-[180ms] ${isActive(path, h) ? "text-fg" : "text-mute"}`} aria-current={isActive(path, h) ? "page" : undefined}>{l.toUpperCase()}</Link>
+          <Link key={h} href={h} className={`relative flex min-h-14 flex-col items-center justify-center gap-1 font-mono text-[9px] tracking-wider transition-colors duration-[180ms] ${isActive(path, h) ? "text-fg" : "text-mute"}`} aria-current={isActive(path, h) ? "page" : undefined}><Icon name={iconForLabel(l) ?? "overview"} size={17} />{l.toUpperCase()}</Link>
         ))}
-        <Link href="/app/machines/new" className="flex min-h-12 items-center justify-center bg-fg font-mono text-[10px] tracking-wider text-bg active:scale-[.97] transition-transform duration-[120ms]">+ NEW</Link>
+        <Link href="/app/machines/new" className="flex min-h-14 flex-col items-center justify-center gap-1 bg-fg font-mono text-[9px] tracking-wider text-bg active:scale-[.97] transition-transform duration-[120ms]"><Icon name="plus" size={17} />NEW</Link>
       </nav>
     </>
   );

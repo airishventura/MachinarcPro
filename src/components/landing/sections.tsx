@@ -1,6 +1,7 @@
 "use client";
 import { Marquee, Reveal, Spotlight } from "@/components/landing/motion";
 import { Glyph, Status } from "@/components/ui";
+import { Icon, iconForLabel } from "@/components/icon";
 
 /** Product capabilities, rather than unverified platform activity. */
 export function LandingStats() {
@@ -9,7 +10,7 @@ export function LandingStats() {
     <div className="grid grid-cols-2 gap-px bg-line md:grid-cols-4">
       {items.map(([l, n], i) => (
         <Reveal key={l} delay={i * 60} className="bg-bg p-6 md:p-8">
-          <div className="label">{l}</div>
+          <div className="label flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-2"><Icon name={iconForLabel(l) ?? "machine"} size={17} className="text-amber" />{l}</div>
           <div className="mt-3 text-lg md:text-xl">{n}</div>
         </Reveal>
       ))}
@@ -63,7 +64,7 @@ const CAPS = [
 export function CapabilityGrid() {
   return (
     <div className="grid gap-px bg-line sm:grid-cols-2">
-      {CAPS.map(([t, d], i) => <Reveal key={t} delay={i * 70} className="bg-bg"><Spotlight className="h-full p-6"><div className="font-mono text-xs text-amber">0{i + 1}</div><div className="mt-5 font-mono tracking-[.16em]">{t}</div><p className="t-secondary mt-2">{d}</p></Spotlight></Reveal>)}
+      {CAPS.map(([t, d], i) => <Reveal key={t} delay={i * 70} className="bg-bg"><Spotlight className="h-full p-6"><div className="flex items-center justify-between font-mono text-xs text-amber"><span>0{i + 1}</span><Icon name={iconForLabel(t) ?? "tools"} size={22} /></div><div className="mt-5 font-mono tracking-[.16em]">{t}</div><p className="t-secondary mt-2">{d}</p></Spotlight></Reveal>)}
     </div>
   );
 }

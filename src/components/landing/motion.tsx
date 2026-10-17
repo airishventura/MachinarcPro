@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import SpotlightCard from "@/components/react-bits/spotlight-card";
+import Image from "next/image";
+import { Icon, iconForLabel } from "@/components/icon";
 
 // ---------- primitives ----------
 const RM = "(prefers-reduced-motion: reduce)";
@@ -69,7 +71,7 @@ export function ScrollTextReveal({ text, accent = [], className = "" }: { text: 
   const words = text.split(" ");
   return (
     <div ref={ref} className="relative h-[220vh]">
-      <div className="sticky top-0 flex h-screen items-center">
+      <div className="sticky top-0 flex min-h-screen items-center py-20 md:h-screen md:py-0">
         <p className={className} aria-label={text}>
           {words.map((w, i) => {
             const start = i / words.length * 0.85, on = reduced ? 1 : Math.min(1, Math.max(0, (p - start) / 0.12));
@@ -158,19 +160,30 @@ export function StickySteps({ steps }: { steps: { n: string; t: string; d: strin
   const [ref, p] = useScrollProgress<HTMLDivElement>("sticky");
   const active = Math.min(steps.length - 1, Math.floor(p * steps.length));
   return (
-    <div ref={ref} className="relative" style={{ height: `${steps.length * 70 + 40}vh` }}>
-      <div className="sticky top-0 flex h-screen items-center">
+    <div ref={ref} className="relative md:h-[var(--steps-height)]" style={{ "--steps-height": `${steps.length * 70 + 40}vh` } as CSSProperties}>
+      <div className="relative flex min-h-screen items-center py-20 md:sticky md:top-0 md:h-screen md:py-0">
         <div className="mx-auto grid w-full max-w-7xl gap-10 px-5 md:grid-cols-[1fr_1.2fr]">
           <div>
             <div className="label">PROCESS</div>
             <h2 className="mt-3 text-3xl font-medium tracking-tight md:text-5xl">FROM INTENT<br />TO AUTONOMY</h2>
-            <div className="relative mt-10 h-px w-full max-w-sm bg-line" aria-hidden><div className="absolute inset-y-0 left-0 bg-amber" style={{ width: `${p * 100}%` }} /></div>
-            <ol className="mt-6 space-y-2">{steps.map((s, i) => (
+            <figure className="mt-5 max-w-sm">
+              <Image src="/images/editorial/process-scene.webp" alt="Four connected graphite stages illustrate creating, equipping, deploying, and improving a Machine." width={1600} height={900} sizes="(max-width: 767px) calc(100vw - 40px), 384px" className="h-auto w-full" />
+              <figcaption className="mt-1 font-mono text-[9px] tracking-wider text-dim">FOUR STAGES / ONE CONTINUOUS WORKFLOW · ILLUSTRATION</figcaption>
+            </figure>
+            <div className="relative mt-6 hidden h-px w-full max-w-sm bg-line md:block" aria-hidden><div className="absolute inset-y-0 left-0 bg-amber" style={{ width: `${p * 100}%` }} /></div>
+            <ol className="mt-6 hidden space-y-2 md:block">{steps.map((s, i) => (
               <li key={s.n} className={`flex items-center gap-4 font-mono text-sm tracking-[.16em] transition-colors duration-[180ms] ${i === active ? "text-fg" : i < active ? "text-mute" : "text-dim"}`} aria-current={i === active ? "step" : undefined}>
-                <span className={`${i === active ? "text-amber" : ""}`}>{s.n}</span>{s.t}{i < active && <span className="text-ok">✓</span>}
+                <span className={`${i === active ? "text-amber" : ""}`}>{s.n}</span><Icon name={iconForLabel(s.t) ?? "workflow"} size={16} />{s.t}{i < active && <span className="text-ok">✓</span>}
               </li>))}</ol>
           </div>
-          <div className="relative min-h-[300px]">
+          <ol className="grid gap-4 md:hidden">
+            {steps.map(s => <li key={s.n} className="border border-line bg-bg2 p-5">
+              <h3 className="flex items-center gap-3 font-mono text-sm tracking-wider"><span className="text-amber">{s.n}</span><Icon name={iconForLabel(s.t) ?? "workflow"} size={17} />{s.t}</h3>
+              <p className="mt-3 text-sm leading-relaxed text-mute">{s.d}</p>
+              <pre className="mt-5 whitespace-pre-wrap break-words border-t border-line pt-4 font-mono text-[11px] leading-6 text-fg/80">{s.detail}</pre>
+            </li>)}
+          </ol>
+          <div className="relative hidden min-h-[300px] md:block">
             {steps.map((s, i) => (
               <div key={s.n} className="absolute inset-0 border border-line bg-bg2 p-8 transition-[opacity,transform] duration-[320ms]" style={{ opacity: i === active ? 1 : 0, transform: i === active ? "none" : `translateY(${i < active ? -16 : 16}px)`, transitionTimingFunction: "var(--ease-out)" }} aria-hidden={i !== active}>
                 <div className="font-mono text-xs text-amber">{s.n}</div>

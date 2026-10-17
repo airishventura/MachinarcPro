@@ -1,17 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="200" height="32" viewBox="0 0 200 32" fill="none" role="img" aria-labelledby="title">
-  <title id="title">MachinArc</title>
-  <path d="M6 26V13L16 22L26 13V26" stroke="#f1efea" stroke-width="3.5" stroke-linejoin="miter"/>
-  <path d="M6 8A14 14 0 0 1 26 8" stroke="#d9c9a8" stroke-width="2.5"/>
-  <circle cx="26" cy="8" r="2.5" fill="#d9c9a8"/>
-  <g transform="translate(46 8) scale(1.6)" stroke="#f1efea" stroke-width="1" stroke-linejoin="miter" stroke-linecap="square">
-    <path d="M0 10V0L3.5 5L7 0V10"/>
-    <path d="M10 10L13.5 0L17 10M11.1 7H15.9"/>
-    <path d="M27 1L26 0H22L20 2V8L22 10H26L27 9"/>
-    <path d="M30 0V10M37 0V10M30 5H37"/>
-    <path d="M41 0H46M43.5 0V10M41 10H46"/>
-    <path d="M50 10V0L57 10V0"/>
-    <path d="M60 10L63.5 0L67 10M61.1 7H65.9"/>
-    <path d="M70 10V0H75L77 2V4L75 6H70M74 6L77 10"/>
-    <path d="M87 1L86 0H82L80 2V8L82 10H86L87 9"/>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="32" viewBox="0 0 200 32" role="img" aria-labelledby="title"><title id="title">MachinArc</title><path d="M4 28V14H8L16 22L24 14H28V28H23V21L16 28L9 21V28Z" fill="#f1efea"/><path d="M4 10C8-1 24-1 28 10L24 12C21 4 11 4 8 12Z" fill="#d9c9a8"/><g transform="translate(46 8) scale(1.6)" fill="none" stroke="#f1efea" stroke-width="1" stroke-linejoin="miter" stroke-linecap="square"><path d="M0 10V0L3.5 5L7 0V10"/><path d="M10 10L13.5 0L17 10M11.1 7H15.9"/><path d="M27 1L26 0H22L20 2V8L22 10H26L27 9"/><path d="M30 0V10M37 0V10M30 5H37"/><path d="M41 0H46M43.5 0V10M41 10H46"/><path d="M50 10V0L57 10V0"/><path d="M60 10L63.5 0L67 10M61.1 7H65.9"/><path d="M70 10V0H75L77 2V4L75 6H70M74 6L77 10"/><path d="M87 1L86 0H82L80 2V8L82 10H86L87 9"/></g></svg>
