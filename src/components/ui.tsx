@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BrandMark } from "@/components/brand-mark";
+import { Icon, iconForLabel } from "@/components/icon";
 
 const STATUS: Record<string, { c: string; t: string; live?: boolean }> = {
   running: { c: "text-proc bg-proc", t: "RUNNING", live: true },
@@ -47,11 +48,12 @@ export function Glyph({ code, size = 36, active = false }: { code: string; size?
 }
 
 export function PageHeader({ title, sub, children, eyebrow }: { title: string; sub?: string; children?: React.ReactNode; eyebrow?: React.ReactNode }) {
+  const icon = iconForLabel(title);
   return (
     <div className="flex flex-col gap-4 border-b border-line pb-6 md:flex-row md:items-end md:justify-between">
       <div>
         {eyebrow && <div className="mb-2">{eyebrow}</div>}
-        <h1 className="t-title">{title}</h1>
+        <h1 className="t-title flex items-center gap-3">{icon && <Icon name={icon} size={24} className="text-amber" />}<span>{title}</span></h1>
         {sub && <p className="t-secondary mt-1.5">{sub}</p>}
       </div>
       {children && <div className="flex flex-wrap gap-2">{children}</div>}
@@ -61,9 +63,10 @@ export function PageHeader({ title, sub, children, eyebrow }: { title: string; s
 
 export function Kpi({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: "ok" | "warn" | "bad" }) {
   const c = tone === "ok" ? "text-ok" : tone === "warn" ? "text-warn" : tone === "bad" ? "text-bad" : "text-mute";
+  const icon = iconForLabel(label);
   return (
     <div className="bg-bg3 p-4">
-      <div className="label">{label}</div>
+      <div className="label flex items-start gap-2">{icon && <Icon name={icon} size={14} />}<span className="min-w-0 break-words">{label}</span></div>
       <div className="mt-2 font-mono text-2xl tabular-nums">{value}</div>
       {hint && <div className={`mt-1 font-mono text-[11px] ${c}`}>{hint}</div>}
     </div>
@@ -73,6 +76,7 @@ export function Kpi({ label, value, hint, tone }: { label: string; value: string
 export function Empty({ title, body, href, cta }: { title: string; body: string; href?: string; cta?: string }) {
   return (
     <div className="grid-bg flex flex-col items-center border border-dashed border-line px-6 py-14 text-center">
+      <Icon name="inbox" size={28} className="mb-5 text-amber" />
       <div className="font-mono text-xs tracking-[.2em] text-fg">{title}</div>
       <p className="mt-2 max-w-sm text-sm text-mute">{body}</p>
       {href && cta && <Link href={href} className="btn btn-primary mt-6">{cta}</Link>}
@@ -81,10 +85,11 @@ export function Empty({ title, body, href, cta }: { title: string; body: string;
 }
 
 export function Section({ title, right, children, className = "" }: { title: string; right?: React.ReactNode; children: React.ReactNode; className?: string }) {
+  const icon = iconForLabel(title);
   return (
     <section className={`panel ${className}`}>
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <h2 className="label !text-fg">{title}</h2>
+        <h2 className="label flex items-center gap-2 !text-fg">{icon && <Icon name={icon} size={15} className="text-amber" />}{title}</h2>
         {right}
       </div>
       {children}

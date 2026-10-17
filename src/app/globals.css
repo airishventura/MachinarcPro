@@ -1,6 +1,31 @@
 @import "tailwindcss";
 @import "./motion.css";
 
+/* Slow camera movement is confined to conceptual art, never interface labels. */
+@keyframes scene-camera-drift {
+  from { transform: scale(1.025) translate3d(-.35%, .25%, 0); }
+  to { transform: scale(1.075) translate3d(.35%, -.25%, 0); }
+}
+@keyframes scene-light-pass {
+  0%, 15% { opacity: 0; transform: translate3d(-65%, 0, 0); }
+  45% { opacity: .5; }
+  80%, 100% { opacity: 0; transform: translate3d(65%, 0, 0); }
+}
+.scene-camera { animation: scene-camera-drift 18s ease-in-out infinite alternate; animation-play-state: var(--scene-play-state, paused); }
+.scene-light { background: linear-gradient(110deg, transparent 40%, #d9c9a81a 50%, transparent 60%); animation: scene-light-pass 14s ease-in-out infinite; animation-play-state: var(--scene-play-state, paused); }
+.motion-artwork-hero img { object-position: 57% center; }
+.motion-artwork-auth img { object-position: center; }
+.motion-artwork-auth .scene-camera { animation-duration: 22s; }
+.motion-artwork-closing img { object-position: center 70%; }
+@media (max-width: 767px) {
+  .motion-artwork-hero img { object-position: 62% center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scene-camera, .scene-light { animation: none !important; transform: none !important; }
+  .scene-light { display: none; }
+  .scene-motion-toggle { display: none; }
+}
+
 @theme {
   --color-bg: #090909;
   --color-bg2: #0d0e0e;
